@@ -25,13 +25,13 @@ small, ordered patch series:
 7. [`patches/openssl-4.patch`](patches/openssl-4.patch) updates `openssl` to
    `0.10.81` and `openssl-sys` to `0.9.117` so native builds support system
    OpenSSL 4 as well as OpenSSL 3.
-8. [`patches/terminal-theme.patch`](patches/terminal-theme.patch) refreshes
-   terminal colours while Codex is running, including transcript backgrounds,
-   cached text and automatic syntax themes. Its input-library companion,
-   [`patches/crossterm-terminal-colors.patch`](patches/crossterm-terminal-colors.patch),
-   applies to the already pinned Crossterm revision `ed1cdab335221515706178d68495bba2aed1924f`.
-   [`prepare-crossterm.sh`](prepare-crossterm.sh) fetches that exact revision
-   into the build checkout's ignored `.cache/crossterm` directory and patches it.
+8. [`patches/terminal-theme.patch`](patches/terminal-theme.patch) refreshes the
+   terminal palette and automatic syntax theme on Unix scheme notifications
+   (mode 2031) and focus gain. Leave `tui.theme` unset to follow the terminal;
+   explicit themes remain selected. Tests are in `terminal-theme-tests.patch`.
+   [`prepare-crossterm.sh`](prepare-crossterm.sh) applies the companion Crossterm
+   implementation and test patches to revision `ed1cdab335221515706178d68495bba2aed1924f`
+   in the build checkout's `.cache/crossterm` directory.
 
 The original code patch sets the custom release version, retries typed
 model capacity errors, and suppresses three selection boxes:
@@ -186,22 +186,6 @@ The cybersecurity-abort-bell patch emits an unconditional terminal BEL when a
 typed `CyberPolicy` rejection reaches the dedicated abort notice. It does not
 depend on desktop-notification settings or whether the terminal is focused.
 
-The terminal-theme patch subscribes to terminal light/dark notifications
-(mode 2031) on Unix. Colour changes and focus gains request the current default
-foreground and background through the existing asynchronous input reader.
-Only complete replies update the palette; keys and bracketed pastes retain their
-normal ordering. The subscription is removed when terminal input is suspended
-or Codex exits. Terminals without mode 2031 can refresh on focus gain if they
-answer OSC 10/11 queries.
-
-Without an explicit syntax theme, Codex follows the terminal's light/dark
-background using its built-in Catppuccin Latte (light) and Catppuccin Mocha
-(dark) themes. Leave `tui.theme` unset to use these defaults and switch them
-live with the terminal. An explicit theme remains selected in both modes.
-The patch refreshes the existing rendering and theme selection; it does not
-alter theme colours or add contrast rules, custom palettes, or Foot-specific
-configuration.
-
 ## Install
 
 Native macOS builds require the Xcode Command Line Tools. Install them once if
@@ -226,10 +210,9 @@ Then build and activate the custom Codex:
 The installer supports native arm64 and x86_64 builds on macOS and Linux. It:
 
 1. requires the pinned submodule to be clean;
-2. creates a disposable Git worktree in the main Codex checkout's sibling
-   `codex-worktrees` directory and applies the patches in order there,
+2. creates a disposable Git worktree and applies the patches in order there,
    keeping the pinned submodule clean even when Cargo refreshes a release
-   lockfile, then prepares the pinned and patched Crossterm dependency;
+   lockfile;
 3. uses Codex's canonical package builder to include `codex-code-mode-host`,
    `rg`, `zsh`, and, on Linux, `bwrap`;
 4. strips release debug information from the two locally built binaries;
@@ -271,24 +254,25 @@ cat \
     patches/cybersecurity-abort-bell.patch \
     patches/writable-file-sandbox.patch \
     patches/openssl-4.patch \
-    patches/terminal-theme.patch >"$patch_bundle"
+    patches/terminal-theme.patch \
+    patches/terminal-theme-tests.patch >"$patch_bundle"
 git -C codex apply --check "$patch_bundle"
 git -C codex apply "$patch_bundle"
 sh ./prepare-crossterm.sh "$PWD/codex"
 rm -f -- "$patch_bundle"
 ```
 
-Build a package using the upstream builder, which resolves the pinned V8 artifacts
-and bundles the supporting executables:
+Build directly from the upstream Cargo workspace:
 
 ```sh
-CODEX_REPO_ROOT="$PWD/codex" python3 codex/scripts/build_codex_package.py \
-    --cargo-profile release --package-dir "$PWD/package"
+cd codex/codex-rs
+cargo build --release --bin codex --bin codex-code-mode-host
 ```
 
 To return the submodule to its pinned clean state:
 
 ```sh
+git -C codex apply --reverse ../patches/terminal-theme-tests.patch
 git -C codex apply --reverse ../patches/terminal-theme.patch
 git -C codex apply --reverse ../patches/openssl-4.patch
 git -C codex apply --reverse ../patches/writable-file-sandbox.patch
@@ -299,7 +283,6 @@ git -C codex apply --reverse ../patches/codex-customizations-tests.patch
 git -C codex apply --reverse ../patches/codex-customizations.patch
 # Restore Cargo-generated local-package version metadata.
 git -C codex restore -- codex-rs/Cargo.lock
-# Remove the dependency checkout before preparing it again.
 rm -r -- codex/.cache/crossterm
 ```
 
@@ -325,15 +308,11 @@ and testing.
 5. Apply the remaining patches and run `just fmt` from `codex/codex-rs`. Run every
    focused test plus the `codex-tui` and `codex-cli` crate suites. Auth-file
    selection is process-local, so upstream auth tests cannot inherit it from a
-   supervising Codex process. Unset `CODEX_HOME`, `CODEX_SQLITE_HOME` and `NO_COLOR`
-   for test commands so subprocess configuration and databases stay within the
-   test homes and color assertions use their expected terminal output.
-   Set `BROWSER=/bin/true` to prevent local
+   supervising Codex process. Unset `CODEX_SQLITE_HOME` and `NO_COLOR` for test
+   commands so database paths stay within the test homes and color assertions
+   use their expected terminal output. Set `BROWSER=/bin/true` to prevent local
    OAuth fixtures from opening the desktop browser. Run tests with `umask 077` so temporary
-   IDE socket directories satisfy the permission checks. Large debug TUI tests
-   may need `RUST_MIN_STACK=16777216`. Package-copy tests need ample temporary
-   storage; keep an overridden `TMPDIR` outside the home directory so snapshots
-   do not abbreviate its path with `~`.
+   IDE socket directories satisfy the permission checks.
 6. Reverse the patches in reverse order and verify the submodule is clean.
    Commit the migrated patches and updated submodule pin, then record the final
    version bump in a separate commit. Push both and update the parent repository's
