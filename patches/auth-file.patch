@@ -1,8 +1,8 @@
 diff --git a/codex-rs/Cargo.lock b/codex-rs/Cargo.lock
-index bda1b4ecdd..4a7bb08ae3 100644
+index 9b4f7e5a07..0ea7199b10 100644
 --- a/codex-rs/Cargo.lock
 +++ b/codex-rs/Cargo.lock
-@@ -3842,6 +3842,7 @@ dependencies = [
+@@ -3870,6 +3870,7 @@ dependencies = [
   "http 1.4.0",
   "jsonwebtoken",
   "keyring",
@@ -11,7 +11,7 @@ index bda1b4ecdd..4a7bb08ae3 100644
   "opentelemetry_sdk",
   "os_info",
 diff --git a/codex-rs/cli/src/doctor.rs b/codex-rs/cli/src/doctor.rs
-index 859fad9f69..20822f3cd4 100644
+index 533cf0d4e8..0e9ff99737 100644
 --- a/codex-rs/cli/src/doctor.rs
 +++ b/codex-rs/cli/src/doctor.rs
 @@ -54,6 +54,7 @@ use codex_login::CODEX_ACCESS_TOKEN_ENV_VAR;
@@ -32,7 +32,7 @@ index 859fad9f69..20822f3cd4 100644
          "auth storage mode: {:?}",
          config.cli_auth_credentials_store_mode
 diff --git a/codex-rs/cli/src/main.rs b/codex-rs/cli/src/main.rs
-index ccd9e74299..4c24b0bab0 100644
+index a0fa25fb90..09606e3dc5 100644
 --- a/codex-rs/cli/src/main.rs
 +++ b/codex-rs/cli/src/main.rs
 @@ -132,6 +132,91 @@ struct MultitoolCli {
@@ -195,7 +195,7 @@ index ccd9e74299..4c24b0bab0 100644
      // Fold --enable/--disable into config overrides so they flow to all subcommands.
      let toggle_overrides = feature_toggles.to_overrides()?;
      root_config_overrides.raw_overrides.extend(toggle_overrides);
-@@ -2951,6 +3090,13 @@ enabled = true
+@@ -2991,6 +3130,13 @@ enabled = true
          let MultitoolCli {
              mut interactive,
              config_overrides: mut root_overrides,
@@ -209,7 +209,7 @@ index ccd9e74299..4c24b0bab0 100644
              subcommand,
              feature_toggles: _,
              remote: _,
-@@ -2993,6 +3139,13 @@ enabled = true
+@@ -3033,6 +3179,13 @@ enabled = true
          let MultitoolCli {
              mut interactive,
              config_overrides: mut root_overrides,
@@ -223,7 +223,7 @@ index ccd9e74299..4c24b0bab0 100644
              subcommand,
              feature_toggles: _,
              remote: _,
-@@ -3037,6 +3190,13 @@ enabled = true
+@@ -3077,6 +3230,13 @@ enabled = true
          let MultitoolCli {
              interactive,
              config_overrides: root_overrides,
@@ -237,7 +237,7 @@ index ccd9e74299..4c24b0bab0 100644
              subcommand,
              feature_toggles: _,
              remote: _,
-@@ -3298,6 +3458,149 @@ enabled = true
+@@ -3338,6 +3498,149 @@ enabled = true
          }
      }
  

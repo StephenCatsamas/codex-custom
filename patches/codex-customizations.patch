@@ -1,5 +1,5 @@
 diff --git a/codex-rs/Cargo.toml b/codex-rs/Cargo.toml
-index 4703a04f6d..f99d73f5eb 100644
+index 465e7aeb4f..9d18b7b943 100644
 --- a/codex-rs/Cargo.toml
 +++ b/codex-rs/Cargo.toml
 @@ -159,7 +159,7 @@ members = [
@@ -7,15 +7,15 @@ index 4703a04f6d..f99d73f5eb 100644
  
  [workspace.package]
 -version = "0.0.0"
-+version = "0.163.0-k.a9b08151"
++version = "0.163.0-k.c22a06c1"
  # Track the edition for all workspace crates in one place. Individual
  # crates can still override this value, but keeping it here means new
  # crates created with `cargo new -w ...` automatically inherit the 2024
 diff --git a/codex-rs/core/src/session/mod.rs b/codex-rs/core/src/session/mod.rs
-index cfc78caabb..b7fecf715c 100644
+index b285c606be..ca96d4967f 100644
 --- a/codex-rs/core/src/session/mod.rs
 +++ b/codex-rs/core/src/session/mod.rs
-@@ -5087,14 +5087,19 @@ impl Session {
+@@ -5318,14 +5318,19 @@ impl Session {
          message: impl Into<String>,
          codex_error: CodexErr,
      ) {
@@ -40,10 +40,10 @@ index cfc78caabb..b7fecf715c 100644
          self.send_event(turn_context, event).await;
      }
 diff --git a/codex-rs/protocol/src/error.rs b/codex-rs/protocol/src/error.rs
-index 9e44430d6f..7f374c4cdd 100644
+index 8dfe556d94..5327c55bb0 100644
 --- a/codex-rs/protocol/src/error.rs
 +++ b/codex-rs/protocol/src/error.rs
-@@ -421,12 +421,11 @@ impl CodexErr {
+@@ -435,12 +435,11 @@ impl CodexErr {
              | CodexErrorDetails::CyberPolicy { .. }
              | CodexErrorDetails::BioPolicy { .. }
              | CodexErrorDetails::MisalignmentPolicyViolation { .. } => None,

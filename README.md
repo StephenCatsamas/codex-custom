@@ -1,8 +1,8 @@
 # codex-custom
 
 This repository pins the upstream [OpenAI Codex](https://github.com/openai/codex)
-repository as a submodule at commit `a9b0815167c27ab13719dd12d13b63e02b70d221`
-from upstream `main`. The custom version is `0.163.0-k.a9b08151`. It carries a
+repository as a submodule at commit `c22a06c18070c3e33bd2648c7210a00a2a9f6f80`
+from upstream `main`. The custom version is `0.163.0-k.c22a06c1`. It carries a
 small, ordered patch series:
 
 1. [`patches/codex-customizations.patch`](patches/codex-customizations.patch)
@@ -72,7 +72,7 @@ model-capacity classification, separate from quota and usage-limit errors.
 
 The companion test patch has no runtime effect. It keeps the original
 customizations' tests separate from their implementation and records the
-expected auto-dismissed UI and `0.163.0-k.a9b08151` snapshot output.
+expected auto-dismissed UI and `0.163.0-k.c22a06c1` snapshot output.
 
 The quota patch adds `--exit-on-quota-exceeded` to interactive Codex. With the
 flag present, a terminal typed `UsageLimitExceeded` error from either the main
@@ -134,8 +134,8 @@ new turn.
 Versions use `<major>.<next-stable-minor>.0-k.<commit-first8>`. Take the latest
 stable upstream release, increment its minor version, and reset the patch version
 to zero. Append `-k.` and the first eight characters of the pinned upstream commit.
-For example, stable `0.162.1` and commit `a9b0815167c…` produce
-`0.163.0-k.a9b08151`. Builds use that exact commit; installation never fetches
+For example, stable `0.162.1` and commit `c22a06c1807…` produce
+`0.163.0-k.c22a06c1`. Builds use that exact commit; installation never fetches
 a moving upstream branch.
 
 The auth-file patch exposes one complete, generic managed-credential protocol:
@@ -297,7 +297,8 @@ and testing.
    selection is process-local, so upstream auth tests cannot inherit it from a
    supervising Codex process. Unset `CODEX_SQLITE_HOME` and `NO_COLOR` for test
    commands so database paths stay within the test homes and color assertions
-   use their expected terminal output. Set `BROWSER=/bin/true` to prevent local
+   use their expected terminal output. Set `RUST_MIN_STACK=16777216` for the
+   upstream async test fixtures and `BROWSER=/bin/true` to prevent local
    OAuth fixtures from opening the desktop browser. Run tests with `umask 077` so temporary
    IDE socket directories satisfy the permission checks.
 6. Reverse the patches in reverse order and verify the submodule is clean.
