@@ -6,7 +6,8 @@ from upstream `main`. The custom version is `0.163.0-k.c22a06c1`. It carries a
 small, ordered patch series:
 
 1. [`patches/codex-customizations.patch`](patches/codex-customizations.patch)
-   contains the UI, Reserve opt-out, release version, and capacity-retry code.
+   contains the UI, Reserve opt-out, release version, capacity-retry code, and
+   outgoing request metadata compatibility fix.
 2. [`patches/codex-customizations-tests.patch`](patches/codex-customizations-tests.patch)
    contains their corresponding test assertions and snapshots, including the
    custom version snapshots.
@@ -66,8 +67,8 @@ retry budget, server retry advice, exponential backoff, and transport fallback a
 is shared with other retryable stream errors, not reset by switching error types.
 Retries remain interruptible. With
 `--exit-on-quota-exceeded`, only a terminal capacity error after retries are
-exhausted requests a supervised restart; retry notifications from either the
-main thread or a subagent do not stop the instance. The final error retains its
+exhausted on the primary thread requests a supervised restart; retry notifications
+from either the main thread or a subagent do not stop the instance. The final error retains its
 model-capacity classification, separate from quota and usage-limit errors.
 
 The companion test patch has no runtime effect. It keeps the original
@@ -75,9 +76,12 @@ customizations' tests separate from their implementation and records the
 expected auto-dismissed UI and `0.163.0-k.c22a06c1` snapshot output.
 
 The quota patch adds `--exit-on-quota-exceeded` to interactive Codex. With the
-flag present, a terminal typed `UsageLimitExceeded` error from either the main
-thread or any tracked subagent follows the normal notification path and then
+flag present, a terminal typed `UsageLimitExceeded` error from the primary
+thread follows the normal notification path and then
 requests the same shutdown-first exit used by an ordinary interactive quit.
+Subagent errors follow normal notification routing without requesting a restart,
+even when the subagent is displayed. This restriction also applies to capacity,
+invalid-credential, and disconnected-stream recovery.
 After the app server, threads, terminal, and telemetry have been cleaned up,
 the CLI emits one final unstyled line, flushes it, and returns process status
 `75` (`EX_TEMPFAIL`) through normal unwinding. The status is the authoritative
@@ -96,6 +100,15 @@ Typed model-capacity errors use `"outcome":"model-capacity"` and
 `"unavailable_until":null`. The supervisor passes this reason to its credential
 provider so the credential can be returned and account selection can prefer
 accounts that have not recently refused capacity.
+
+Terminal stream disconnects use `"outcome":"stream-disconnected"` with no
+credential failure or unavailable time. This includes the processing failure
+`stream disconnected before completion: An error occurred while processing your request.`
+after retries finish.
+
+Outgoing standard and Responses Lite requests omit `content_item_metadata`,
+which the deployed API rejects, including when resuming saved history. Other
+metadata and the persisted conversation remain intact.
 
 An external supervisor should interpret the marker only after status `75` and
 search backward through its captured PTY tail so terminal cleanup output after

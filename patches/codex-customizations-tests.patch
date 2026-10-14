@@ -203,6 +203,81 @@ index d443977137..4930514c5b 100644
  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
  async fn context_window_error_sets_total_tokens_to_model_window() -> anyhow::Result<()> {
      skip_if_no_network!(Ok(()));
+diff --git a/codex-rs/core/tests/suite/client_websockets.rs b/codex-rs/core/tests/suite/client_websockets.rs
+index 288b8e208b..d6a640c3aa 100755
+--- a/codex-rs/core/tests/suite/client_websockets.rs
++++ b/codex-rs/core/tests/suite/client_websockets.rs
+@@ -259,6 +259,70 @@ async fn responses_websocket_preserves_raw_tool_metadata_for_openai_custom_endpo
+     server.shutdown().await;
+ }
+ 
++#[test_case::test_case(false; "standard")]
++#[test_case::test_case(true; "responses_lite")]
++#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
++async fn responses_websocket_omits_content_attribution_from_restored_input(responses_lite: bool) {
++    skip_if_no_network!();
++
++    let server = start_websocket_server(vec![vec![vec![
++        ev_response_created("resp-1"),
++        ev_completed("resp-1"),
++    ]]])
++    .await;
++    let mut harness = websocket_harness_with_provider_options_and_auth(
++        ModelProviderInfo::create_openai_provider(Some(format!("{}/v1", server.uri()))),
++        false,
++        false,
++        &[Feature::ContentItemKinds],
++        Some(CodexAuth::create_dummy_chatgpt_auth_for_testing()),
++    )
++    .await;
++    harness.model_info.use_responses_lite = responses_lite;
++    let saved_item = json!({
++        "type": "message", "role": "user",
++        "content": [{"type": "input_text", "text": "saved input"}],
++        "internal_chat_message_metadata_passthrough": {
++            "turn_id": "saved-turn", "create_time": 1800000000,
++            "content_item_kinds": ["user_prompt"],
++            "content_item_metadata": [{"provenance": {"type": "harness", "hook": false}}],
++        },
++    });
++    let saved_input: ResponseItem = serde_json::from_value(saved_item.clone()).unwrap();
++    let mut expected_input = saved_item;
++    expected_input["internal_chat_message_metadata_passthrough"]
++        .as_object_mut()
++        .unwrap()
++        .remove("content_item_metadata");
++    let prompt = prompt_with_input_and_instructions(vec![saved_input.clone()], "base instructions");
++    let mut session = harness.client.new_session();
++    stream_until_complete_with_model_info(
++        &mut session,
++        &harness,
++        &prompt,
++        &harness.model_info,
++        "resp-1",
++    )
++    .await;
++
++    let connection = server.single_connection();
++    let body = connection[0].body_json();
++    assert_eq!(body["type"], "response.create");
++    let input = body["input"].as_array().unwrap();
++    assert_eq!(input.last().unwrap(), &expected_input);
++    for item in input {
++        assert!(
++            item["internal_chat_message_metadata_passthrough"]
++                .get("content_item_metadata")
++                .is_none()
++        );
++    }
++    assert_eq!(prompt.input, vec![saved_input]);
++    assert!(serde_json::to_value(&prompt.input[0]).unwrap()
++        ["internal_chat_message_metadata_passthrough"]["content_item_metadata"].is_array());
++    server.shutdown().await;
++}
++
+ #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+ async fn responses_websocket_streams_request() {
+     skip_if_no_network!();
 diff --git a/codex-rs/core/tests/suite/compact_remote.rs b/codex-rs/core/tests/suite/compact_remote.rs
 index 467a3509d9..2b4c5a29af 100644
 --- a/codex-rs/core/tests/suite/compact_remote.rs
@@ -396,6 +471,30 @@ index 467a3509d9..2b4c5a29af 100644
  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
  async fn remote_compact_v2_retries_failures_with_stream_retry_budget() -> Result<()> {
      skip_if_no_network!(Ok(()));
+diff --git a/codex-rs/core/tests/suite/responses_lite.rs b/codex-rs/core/tests/suite/responses_lite.rs
+index dde83441f3..352017ea13 100644
+--- a/codex-rs/core/tests/suite/responses_lite.rs
++++ b/codex-rs/core/tests/suite/responses_lite.rs
+@@ -133,7 +133,7 @@ async fn base_instructions_use_input_items(responses_lite: bool) -> Result<()> {
+             .as_str()
+             .is_some_and(|id| id.starts_with("msg_"))
+     );
+-    let mut expected_instructions = serde_json::json!({
++    let expected_instructions = serde_json::json!({
+         "id": instructions["id"],
+         "type": "message",
+         "role": "developer",
+@@ -145,10 +145,6 @@ async fn base_instructions_use_input_items(responses_lite: bool) -> Result<()> {
+             "content_item_kinds": ["model.base_instructions"],
+         },
+     });
+-    if responses_lite {
+-        expected_instructions["internal_chat_message_metadata_passthrough"]["content_item_metadata"] =
+-            serde_json::json!([{"provenance": {"type": "harness", "hook": false}}]);
+-    }
+     assert_eq!(instructions, &expected_instructions);
+ 
+     let tools = if responses_lite {
 diff --git a/codex-rs/core/tests/suite/retry_after.rs b/codex-rs/core/tests/suite/retry_after.rs
 index bceca6f5b4..8f54b80a1c 100644
 --- a/codex-rs/core/tests/suite/retry_after.rs
@@ -941,10 +1040,10 @@ index 460b977b3c..4af071c81e 100644
      Ok(())
 diff --git a/codex-rs/tui/src/app/tests/reserve_disabled_tests.rs b/codex-rs/tui/src/app/tests/reserve_disabled_tests.rs
 new file mode 100644
-index 0000000000..cb4231a01d
+index 0000000000..319f36fe3a
 --- /dev/null
 +++ b/codex-rs/tui/src/app/tests/reserve_disabled_tests.rs
-@@ -0,0 +1,197 @@
+@@ -0,0 +1,187 @@
 +//! Exercise the custom build's Reserve opt-out through real account usage reads.
 +
 +use super::*;
@@ -1088,19 +1187,9 @@ index 0000000000..cb4231a01d
 +                .contains_key("x-openai-codex-luna-reserve")
 +        );
 +        // Terminal quota errors still use the supervisor and preserve task settings,
-+        // including when a child reports exhaustion after an unsolicited Reserve offer.
++        // after an unsolicited Reserve offer.
 +        app.exit_on_quota_exceeded = true;
 +        let primary = app.primary_thread_id.unwrap();
-+        let error_thread = if banner_type == "luna_reserve" {
-+            primary
-+        } else {
-+            let child = ThreadId::new();
-+            app.thread_event_channels.insert(
-+                child,
-+                ThreadEventChannel::new(THREAD_EVENT_CHANNEL_CAPACITY),
-+            );
-+            child
-+        };
 +        app.handle_app_server_event(
 +            &server,
 +            codex_app_server_client::AppServerEvent::ServerNotification(Box::new(
@@ -1112,7 +1201,7 @@ index 0000000000..cb4231a01d
 +                        additional_details: None,
 +                    },
 +                    will_retry: false,
-+                    thread_id: error_thread.to_string(),
++                    thread_id: primary.to_string(),
 +                    turn_id: "turn-1".into(),
 +                }),
 +            )),

@@ -11,6 +11,25 @@ index 465e7aeb4f..9d18b7b943 100644
  # Track the edition for all workspace crates in one place. Individual
  # crates can still override this value, but keeping it here means new
  # crates created with `cargo new -w ...` automatically inherit the 2024
+diff --git a/codex-rs/core/src/client.rs b/codex-rs/core/src/client.rs
+index 0bab5f257a..928124b8e7 100644
+--- a/codex-rs/core/src/client.rs
++++ b/codex-rs/core/src/client.rs
+@@ -1004,11 +1004,9 @@ impl ModelClient {
+             prefix.push(instructions);
+         }
+         input.splice(0..0, prefix);
+-        if !model_info.use_responses_lite {
+-            // Only RLite accepts per-content attribution until the Responses API schema expands.
+-            for item in &mut input {
+-                item.clear_content_item_metadata();
+-            }
++        // Both Responses formats reject per-content attribution, including in restored history.
++        for item in &mut input {
++            item.clear_content_item_metadata();
+         }
+         if !is_openai {
+             for item in &mut input {
 diff --git a/codex-rs/core/src/session/mod.rs b/codex-rs/core/src/session/mod.rs
 index b285c606be..ca96d4967f 100644
 --- a/codex-rs/core/src/session/mod.rs

@@ -520,10 +520,10 @@ index c1537bfa00..a0fa25fb90 100644
      fn resume_include_non_interactive_flag_sets_source_filter_override() {
          let interactive =
 diff --git a/codex-rs/tui/src/app.rs b/codex-rs/tui/src/app.rs
-index 9a324aa3bd..e6efbe9ff1 100644
+index 9a324aa3bd..b6f7ae8845 100644
 --- a/codex-rs/tui/src/app.rs
 +++ b/codex-rs/tui/src/app.rs
-@@ -494,9 +494,23 @@ pub enum ExitReason {
+@@ -494,9 +494,24 @@ pub enum ExitReason {
      TurnInterrupted,
      /// The current thread was deleted, rather than disconnected.
      ThreadRemoved,
@@ -542,16 +542,17 @@ index 9a324aa3bd..e6efbe9ff1 100644
 +    QuotaExhausted,
 +    CredentialInvalid,
 +    ModelCapacity,
++    StreamDisconnected,
 +}
 +
  fn resumable_thread(
      thread_id: Option<ThreadId>,
      thread_name: Option<String>,
-@@ -610,6 +624,17 @@ pub(crate) struct App {
+@@ -610,6 +625,17 @@ pub(crate) struct App {
      /// Retained through all loop exits so shutdown cannot interrupt stop followed by start.
      daemon_restart: Option<JoinHandle<anyhow::Result<codex_app_server_daemon::LifecycleOutput>>>,
  
-+    /// Whether a terminal quota error in any tracked thread should shut down the TUI.
++    /// Whether a terminal recoverable error on the primary thread should shut down the TUI.
 +    exit_on_quota_exceeded: bool,
 +    /// The resumable primary thread recorded by the first quota error that requested shutdown.
 +    quota_exceeded_exit_thread_id: Option<ThreadId>,
@@ -565,7 +566,7 @@ index 9a324aa3bd..e6efbe9ff1 100644
      /// Tracks the thread we intentionally shut down while exiting the app.
      ///
      /// When this matches the active thread, its `ShutdownComplete` should lead to
-@@ -923,6 +948,11 @@ impl App {
+@@ -923,6 +949,11 @@ impl App {
              return Ok(AppRunControl::Exit(ExitReason::UserRequested));
          }
          let screen_size = tui.screen_size_for_event(&event)?;
@@ -578,7 +579,7 @@ index 9a324aa3bd..e6efbe9ff1 100644
              &event,
              TuiEvent::Key(_) | TuiEvent::Mouse(_) | TuiEvent::Paste(_) | TuiEvent::FocusLost
 diff --git a/codex-rs/tui/src/app/app_server_events.rs b/codex-rs/tui/src/app/app_server_events.rs
-index 2821d6d242..86eb162ed5 100644
+index 2821d6d242..d35f65c01d 100644
 --- a/codex-rs/tui/src/app/app_server_events.rs
 +++ b/codex-rs/tui/src/app/app_server_events.rs
 @@ -2,6 +2,7 @@
@@ -699,24 +700,34 @@ index 2821d6d242..86eb162ed5 100644
                  let workspace_hard_stop = matches!(
                      notification.rate_limits.rate_limit_reached_type,
                      Some(
-@@ -459,6 +537,27 @@ impl App {
+@@ -459,6 +537,37 @@ impl App {
              _ => {}
          }
  
 +        let outcome = match &notification {
-+            ServerNotification::Error(notification) if self.exit_on_quota_exceeded => {
++            ServerNotification::Error(notification)
++                if self.exit_on_quota_exceeded && !notification.will_retry =>
++            {
 +                match notification.error.codex_error_info.as_ref() {
-+                    Some(CodexErrorInfo::ServerOverloaded) if !notification.will_retry => {
++                    Some(CodexErrorInfo::ServerOverloaded) => {
 +                        Some(SupervisedOutcome::ModelCapacity)
 +                    }
-+                    Some(CodexErrorInfo::UsageLimitExceeded) if !notification.will_retry => {
++                    Some(CodexErrorInfo::UsageLimitExceeded) => {
 +                        Some(SupervisedOutcome::QuotaExhausted)
 +                    }
 +                    Some(CodexErrorInfo::Unauthorized)
-+                        if !notification.will_retry
-+                            && codex_login::managed_credential_is_invalid() =>
++                        if codex_login::managed_credential_is_invalid() =>
 +                    {
 +                        Some(SupervisedOutcome::CredentialInvalid)
++                    }
++                    Some(CodexErrorInfo::ResponseStreamDisconnected { .. }) => {
++                        Some(SupervisedOutcome::StreamDisconnected)
++                    }
++                    Some(CodexErrorInfo::Other)
++                        if notification.error.message
++                            == "stream disconnected before completion: An error occurred while processing your request." =>
++                    {
++                        Some(SupervisedOutcome::StreamDisconnected)
 +                    }
 +                    _ => None,
 +                }
@@ -727,12 +738,13 @@ index 2821d6d242..86eb162ed5 100644
          match server_notification_thread_target(&notification) {
              ServerNotificationThreadTarget::Thread(thread_id) => {
                  if self.current_displayed_thread_id() != Some(thread_id)
-@@ -507,6 +606,12 @@ impl App {
+@@ -507,6 +616,13 @@ impl App {
                  {
                      return;
                  }
-+                let request_quota_exit =
-+                    outcome.is_some() && self.quota_exceeded_exit_thread_id.is_none();
++                let request_quota_exit = outcome.is_some()
++                    && self.primary_thread_id == Some(thread_id)
++                    && self.quota_exceeded_exit_thread_id.is_none();
 +                if let Some(outcome) = outcome.filter(|_| request_quota_exit) {
 +                    self.supervised_outcome = outcome;
 +                    self.prepare_quota_exceeded_exit(thread_id);
@@ -740,7 +752,7 @@ index 2821d6d242..86eb162ed5 100644
                  let result = if self.primary_thread_id.is_none() && !background_voice {
                      self.enqueue_primary_thread_notification(notification).await
                  } else {
-@@ -517,6 +622,10 @@ impl App {
+@@ -517,6 +633,10 @@ impl App {
                  if let Err(err) = result {
                      tracing::warn!("failed to enqueue app-server notification: {err}");
                  }
@@ -796,7 +808,7 @@ index f9932ced06..71f4168077 100644
              lines.push(message.to_string());
              let mut resume_command = disconnect.command.clone();
 diff --git a/codex-rs/tui/src/app/startup.rs b/codex-rs/tui/src/app/startup.rs
-index c053d540f1..cc784b8d1f 100644
+index c053d540f1..21419ffcd0 100644
 --- a/codex-rs/tui/src/app/startup.rs
 +++ b/codex-rs/tui/src/app/startup.rs
 @@ -238,11 +238,14 @@ impl App {
@@ -880,7 +892,7 @@ index c053d540f1..cc784b8d1f 100644
          }
          if !start_in_agents_overview
              && !pending_startup_thread_start
-@@ -1533,6 +1579,27 @@ See the Codex keymap documentation for supported actions and examples."
+@@ -1533,6 +1579,29 @@ See the Codex keymap documentation for supported actions and examples."
                  return Err(err);
              }
          };
@@ -896,7 +908,9 @@ index c053d540f1..cc784b8d1f 100644
 +                outcome: app.supervised_outcome,
 +                unavailable_until: match app.supervised_outcome {
 +                    SupervisedOutcome::QuotaExhausted => app.quota_unavailable_until,
-+                    SupervisedOutcome::CredentialInvalid | SupervisedOutcome::ModelCapacity => None,
++                    SupervisedOutcome::CredentialInvalid
++                    | SupervisedOutcome::ModelCapacity
++                    | SupervisedOutcome::StreamDisconnected => None,
 +                },
 +                handoff_path: app
 +                    .quota_handoff_path
@@ -1001,10 +1015,10 @@ index d6a08e28e5..d33a19000d 100644
  async fn replace_goal_confirmation_snapshot() {
      let mut app = make_test_app().await;
 diff --git a/codex-rs/tui/src/app/tests/rate_limits.rs b/codex-rs/tui/src/app/tests/rate_limits.rs
-index 4af071c81e..3eff71415c 100644
+index 4af071c81e..3e400b169a 100644
 --- a/codex-rs/tui/src/app/tests/rate_limits.rs
 +++ b/codex-rs/tui/src/app/tests/rate_limits.rs
-@@ -105,6 +105,213 @@ fn deliver_usage_limit_error(app: &mut App) {
+@@ -105,6 +105,305 @@ fn deliver_usage_limit_error(app: &mut App) {
      );
  }
  
@@ -1041,7 +1055,7 @@ index 4af071c81e..3eff71415c 100644
 +}
 +
 +#[tokio::test]
-+async fn terminal_quota_error_exits_once_for_main_or_subagent() -> Result<()> {
++async fn terminal_quota_error_exits_once_only_for_main_thread() -> Result<()> {
 +    for error_from_subagent in [false, true] {
 +        let (mut app, mut app_event_rx, _op_rx) = make_test_app_with_channels().await;
 +        let app_server = crate::start_embedded_app_server_for_picker(app.chat_widget.config_ref())
@@ -1058,6 +1072,7 @@ index 4af071c81e..3eff71415c 100644
 +        };
 +        app.primary_thread_id = Some(primary_thread_id);
 +        if error_from_subagent {
++            app.active_thread_id = Some(subagent_thread_id);
 +            app.thread_event_channels.insert(
 +                subagent_thread_id,
 +                ThreadEventChannel::new(THREAD_EVENT_CHANNEL_CAPACITY),
@@ -1099,10 +1114,25 @@ index 4af071c81e..3eff71415c 100644
 +            .await;
 +        }
 +
++        if error_from_subagent {
++            assert_eq!(count_shutdown_first_exits(&mut app_event_rx), 0);
++            assert_eq!(app.quota_exceeded_exit_thread_id, None);
++            assert!(app.quota_handoff_path.is_none());
++            assert!(app.quota_handoff_error.is_none());
++            app.handle_app_server_event(
++                &app_server,
++                turn_error_event(primary_thread_id, false, CodexErrorInfo::UsageLimitExceeded),
++            )
++            .await;
++        }
++
 +        assert_eq!(count_shutdown_first_exits(&mut app_event_rx), 1);
 +        assert_eq!(app.quota_exceeded_exit_thread_id, Some(primary_thread_id));
 +        assert_eq!(app.supervised_outcome, SupervisedOutcome::QuotaExhausted);
-+        assert_eq!(app.quota_unavailable_until, Some(1_800_100_000));
++        assert_eq!(
++            app.quota_unavailable_until,
++            (!error_from_subagent).then_some(1_800_100_000),
++        );
 +        assert_eq!(
 +            app.quota_recovery_args(),
 +            vec![
@@ -1127,7 +1157,7 @@ index 4af071c81e..3eff71415c 100644
 +}
 +
 +#[tokio::test]
-+async fn capacity_error_retries_before_exit_for_main_or_subagent() -> Result<()> {
++async fn capacity_error_retries_before_exit_only_for_main_thread() -> Result<()> {
 +    for error_from_subagent in [false, true] {
 +        let (mut app, mut app_event_rx, _op_rx) = make_test_app_with_channels().await;
 +        let app_server = crate::start_embedded_app_server_for_picker(app.chat_widget.config_ref())
@@ -1139,6 +1169,7 @@ index 4af071c81e..3eff71415c 100644
 +            let id = ThreadId::from_string("123e4567-e89b-12d3-a456-426614174001").unwrap();
 +            app.thread_event_channels
 +                .insert(id, ThreadEventChannel::new(THREAD_EVENT_CHANNEL_CAPACITY));
++            app.active_thread_id = Some(id);
 +            id
 +        } else {
 +            primary_thread_id
@@ -1170,6 +1201,18 @@ index 4af071c81e..3eff71415c 100644
 +            )
 +            .await;
 +        }
++        if error_from_subagent {
++            assert_eq!(count_shutdown_first_exits(&mut app_event_rx), 0);
++            assert_eq!(app.quota_exceeded_exit_thread_id, None);
++            assert!(app.quota_handoff_path.is_none());
++            assert!(app.quota_handoff_error.is_none());
++            app.handle_app_server_event(
++                &app_server,
++                turn_error_event(primary_thread_id, false, CodexErrorInfo::ServerOverloaded),
++            )
++            .await;
++        }
++
 +        assert_eq!(count_shutdown_first_exits(&mut app_event_rx), 1);
 +        assert_eq!(app.quota_exceeded_exit_thread_id, Some(primary_thread_id));
 +        assert_eq!(app.supervised_outcome, SupervisedOutcome::ModelCapacity);
@@ -1180,6 +1223,69 @@ index 4af071c81e..3eff71415c 100644
 +                .is_some_and(|path| path.is_file())
 +        );
 +        app_server.shutdown().await?;
++    }
++    Ok(())
++}
++
++#[tokio::test]
++async fn stream_disconnect_restarts_only_the_main_thread_after_retries() -> Result<()> {
++    for typed in [false, true] {
++        let (mut app, mut events, _ops) = make_test_app_with_channels().await;
++        let server = crate::start_embedded_app_server_for_picker(app.chat_widget.config_ref())
++            .await
++            .expect("embedded app server");
++        let primary = ThreadId::new();
++        let child = ThreadId::new();
++        app.primary_thread_id = Some(primary);
++        app.thread_event_channels.insert(
++            child,
++            ThreadEventChannel::new(THREAD_EVENT_CHANNEL_CAPACITY),
++        );
++        for (enabled, thread_id, will_retry) in [
++            (false, primary, false),
++            (true, child, false),
++            (true, primary, true),
++            (true, primary, false),
++            (true, primary, false),
++        ] {
++            app.exit_on_quota_exceeded = enabled;
++            let info = if typed {
++                CodexErrorInfo::ResponseStreamDisconnected {
++                    http_status_code: None,
++                }
++            } else {
++                CodexErrorInfo::Other
++            };
++            let mut event = turn_error_event(thread_id, will_retry, info);
++            let codex_app_server_client::AppServerEvent::ServerNotification(notification) =
++                &mut event
++            else {
++                unreachable!();
++            };
++            let ServerNotification::Error(error) = notification.as_mut() else {
++                unreachable!();
++            };
++            error.error.message = "stream disconnected before completion: An error occurred while processing your request.".into();
++            app.handle_app_server_event(&server, event).await;
++            if !enabled || thread_id != primary || will_retry {
++                assert_eq!(count_shutdown_first_exits(&mut events), 0);
++                assert_eq!(app.quota_exceeded_exit_thread_id, None);
++                assert!(app.quota_handoff_path.is_none());
++            }
++        }
++        assert_eq!(count_shutdown_first_exits(&mut events), 1);
++        assert_eq!(app.quota_exceeded_exit_thread_id, Some(primary));
++        assert_eq!(
++            serde_json::to_value(app.supervised_outcome)?,
++            "stream-disconnected"
++        );
++        assert!(
++            app.quota_handoff_path
++                .as_ref()
++                .is_some_and(|path| path.is_file())
++        );
++        assert!(app.quota_handoff_error.is_none());
++        server.shutdown().await?;
 +    }
 +    Ok(())
 +}
