@@ -2,7 +2,7 @@
 
 This repository pins the upstream [OpenAI Codex](https://github.com/openai/codex)
 repository as a submodule at commit `c22a06c18070c3e33bd2648c7210a00a2a9f6f80`
-from upstream `main`. The custom version is `0.163.0-k.c22a06c1`. It carries a
+from upstream `main`. The custom version is `0.163.1-k.c22a06c1`. It carries a
 small, ordered patch series:
 
 1. [`patches/codex-customizations.patch`](patches/codex-customizations.patch)
@@ -73,7 +73,7 @@ model-capacity classification, separate from quota and usage-limit errors.
 
 The companion test patch has no runtime effect. It keeps the original
 customizations' tests separate from their implementation and records the
-expected auto-dismissed UI and `0.163.0-k.c22a06c1` snapshot output.
+expected auto-dismissed UI and `0.163.1-k.c22a06c1` snapshot output.
 
 The quota patch adds `--exit-on-quota-exceeded` to interactive Codex. With the
 flag present, a terminal typed `UsageLimitExceeded` error from the primary
@@ -144,9 +144,11 @@ running, Codex orders its interruption before the locally queued continuation;
 even if the old turn completes concurrently, the interrupt cannot land on the
 new turn.
 
-Versions use `<major>.<next-stable-minor>.0-k.<commit-first8>`. Take the latest
-stable upstream release, increment its minor version, and reset the patch version
-to zero. Append `-k.` and the first eight characters of the pinned upstream commit.
+Versions use `<major>.<next-stable-minor>.<patch>-k.<commit-first8>`. For a new
+upstream pin, take the latest stable upstream release, increment its minor version,
+and reset the patch version to zero. Increment the patch version for downstream
+fixes at the same upstream pin. Append `-k.` and the first eight characters of the
+pinned upstream commit.
 For example, stable `0.162.1` and commit `c22a06c1807…` produce
 `0.163.0-k.c22a06c1`. Builds use that exact commit; installation never fetches
 a moving upstream branch.
