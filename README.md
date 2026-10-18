@@ -1,7 +1,7 @@
 # codex-custom
 
 This repository pins the upstream [OpenAI Codex](https://github.com/openai/codex)
-repository as a submodule at commit `c22a06c18070c3e33bd2648c7210a00a2a9f6f80`
+repository as a submodule at commit `8c076942cb70fba8e5c4732c23f1faabc4aed484`
 from upstream `main`. The custom version is `0.163.1-k.c22a06c1`. It carries a
 small, ordered patch series:
 
@@ -125,9 +125,9 @@ supervisor validates the sidecar, performs any out-of-process recovery required
 by its own policy, and passes the path to the hidden
 `codex resume ... --start-immediately --restore-input-handoff PATH` option. Codex
 restores each saved message into the normal queue independently, submits
-`You were interrupted, continue work` ahead of them, and puts the unfinished
-draft back in the composer. Saved messages follow in their original order, one
-per turn. The sidecar is retained after restore for at-least-once delivery if the
+`You were interrupted, continue work` through the initial-message path ahead of
+them, and puts the unfinished draft back in the composer. Saved messages follow in
+their original order, one per turn. The sidecar is retained after restore for at-least-once delivery if the
 restarted process exits again before all queued input is delivered. Other retryable
 errors and runs without the flag retain their existing behavior. The flag can be
 supplied to a fresh interactive run or to `codex resume` and `codex fork`.
@@ -138,11 +138,20 @@ lock ownership, and shutdown within the supervised process. Input awaiting image
 preparation is returned to the queue before the handoff is saved.
 
 The start-immediately continuation reactivates a paused, blocked, or usage-limited goal,
-then places `You were interrupted, continue work` first in the queue and submits
-it as soon as startup quota recovery permits. If the resumed turn is still
-running, Codex orders its interruption before the locally queued continuation;
-even if the old turn completes concurrently, the interrupt cannot land on the
-new turn.
+then submits `You were interrupted, continue work` as soon as startup quota recovery
+permits. It uses the existing initial-message path, which starts a turn when idle
+or steers a running turn. Goal activation can start an automatic turn while the
+quota read is pending; treating the continuation as an ordinary queued follow-up
+would leave it waiting for that turn to finish. No recovery interrupt is sent,
+because interrupting a goal turn can also pause the goal in core. Restored follow-ups
+remain queued in order, and the unsent draft remains in the composer.
+
+Recovery arguments use the live primary widget's model, provider, tier, and reasoning
+settings while that thread is displayed. The cached primary session is used when
+viewing a different thread. Previously the cache always won, so an exit between
+`/fast` changing the widget and its asynchronous cache update could write the old
+tier into the handoff and carry it into subsequent restarts. Both enabling and
+disabling Fast mode are preserved, without taking a displayed subagent's settings.
 
 Versions use `<major>.<next-stable-minor>.<patch>-k.<commit-first8>`. For a new
 upstream pin, take the latest stable upstream release, increment its minor version,

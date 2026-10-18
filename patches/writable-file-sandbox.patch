@@ -17,7 +17,7 @@ index 51200dc4bd..658d2a1a25 100644
          append_metadata_path_masks_for_writable_root(
              &mut read_only_subpaths,
              root,
-@@ -2816,6 +2822,18 @@ mod tests {
+@@ -2816,6 +2822,17 @@ mod tests {
              "expected unreadable parent mask before rebinding writable file child: {:#?}",
              args.args
          );
@@ -32,7 +32,6 @@ index 51200dc4bd..658d2a1a25 100644
 +                args.args
 +            );
 +        }
-+        assert!(args.protected_create_targets.is_empty());
      }
  
      #[test]

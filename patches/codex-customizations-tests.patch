@@ -1,3 +1,38 @@
+diff --git a/codex-rs/codex-api/src/api_bridge_tests.rs b/codex-rs/codex-api/src/api_bridge_tests.rs
+index c5504e2031..2157fb37ea 100644
+--- a/codex-rs/codex-api/src/api_bridge_tests.rs
++++ b/codex-rs/codex-api/src/api_bridge_tests.rs
+@@ -130,7 +130,7 @@ fn map_api_error_distinguishes_capacity_from_slow_down() {
+         (
+             "server_is_overloaded",
+             CodexErrorInfo::ServerOverloaded,
+-            false,
++            true,
+         ),
+         ("slow_down", CodexErrorInfo::RateLimitExceeded, true),
+         (
+diff --git a/codex-rs/core/src/guardian/tests.rs b/codex-rs/core/src/guardian/tests.rs
+index df88920591..7f56e601c4 100644
+--- a/codex-rs/core/src/guardian/tests.rs
++++ b/codex-rs/core/src/guardian/tests.rs
+@@ -3217,4 +3217,10 @@ async fn guardian_review_retries_transient_session_failure_then_approves() -> an
+                 "temporary reviewer overload",
+             ),
++            // Exhaust the stream retry before testing the guardian's session retry.
++            sse_failed(
++                "resp-session-retry-failure",
++                "server_is_overloaded",
++                "temporary reviewer overload",
++            ),
+             sse(vec![
+                 ev_response_created("resp-approved"),
+@@ -3248,5 +3254,5 @@ async fn guardian_review_retries_transient_session_failure_then_approves() -> an
+         Some(codex_analytics::GuardianReviewSessionKind::TrunkReused)
+     ));
+-    assert_eq!(request_log.requests().len(), 2);
++    assert_eq!(request_log.requests().len(), 3);
+     Ok(())
+ }
 diff --git a/codex-rs/core/tests/suite/client.rs b/codex-rs/core/tests/suite/client.rs
 index d443977137..4930514c5b 100644
 --- a/codex-rs/core/tests/suite/client.rs
@@ -278,6 +313,30 @@ index 288b8e208b..d6a640c3aa 100755
  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
  async fn responses_websocket_streams_request() {
      skip_if_no_network!();
+diff --git a/codex-rs/core/tests/suite/compact.rs b/codex-rs/core/tests/suite/compact.rs
+index ededffe9d5..bd02bd5e58 100644
+--- a/codex-rs/core/tests/suite/compact.rs
++++ b/codex-rs/core/tests/suite/compact.rs
+@@ -6227,8 +6227,17 @@ async fn remote_v2_compaction_refreshes_instructions_and_preserves_them_on_cold_
+     assert_single_instruction_fragment(&requests[3], &new_fragment);
+     let resumed_input = requests[3].input();
++    let mut replacement_input = replacement_history.clone();
++    for item in &mut replacement_input {
++        if let Some(metadata) = item
++            .get_mut("internal_chat_message_metadata_passthrough")
++            .and_then(Value::as_object_mut)
++        {
++            metadata.remove("content_item_metadata");
++        }
++    }
+     assert_eq!(
+         resumed_input.get(2..=replacement_history.len() + 1),
+-        Some(replacement_history.as_slice()),
+-        "remote-v2 cold resume should replay persisted replacement history verbatim"
++        Some(replacement_input.as_slice()),
++        "remote-v2 cold resume should replay persisted history except unsupported per-content metadata"
+     );
+     let post_compact_input = requests[2].input();
 diff --git a/codex-rs/core/tests/suite/compact_remote.rs b/codex-rs/core/tests/suite/compact_remote.rs
 index 467a3509d9..2b4c5a29af 100644
 --- a/codex-rs/core/tests/suite/compact_remote.rs
