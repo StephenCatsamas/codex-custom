@@ -317,7 +317,11 @@ and testing.
    now implemented upstream, together with their installer and documentation
    references.
 5. Apply the remaining patches and run `just fmt` from `codex/codex-rs`. Run every
-   focused test plus the `codex-tui` and `codex-cli` crate suites. Auth-file
+   focused test plus the `codex-tui` and `codex-cli` crate suites, including CLI
+   binary and integration tests (`cargo test -p codex-cli`, without `--lib`).
+   Build both installer binaries with
+   `cargo build --release --bin codex --bin codex-code-mode-host`; library-only
+   checks do not cover CLI subcommand exit paths. Auth-file
    selection is process-local, so upstream auth tests cannot inherit it from a
    supervising Codex process. Unset `CODEX_SQLITE_HOME` and `NO_COLOR` for test
    commands so database paths stay within the test homes and color assertions

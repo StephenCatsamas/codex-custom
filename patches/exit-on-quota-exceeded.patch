@@ -76,7 +76,7 @@ index 2af8624b65..f4ae507009 100644
      }
  
 diff --git a/codex-rs/cli/src/main.rs b/codex-rs/cli/src/main.rs
-index f87786eafb..d9f1c13e67 100644
+index f87786eafb..fb88c222bd 100644
 --- a/codex-rs/cli/src/main.rs
 +++ b/codex-rs/cli/src/main.rs
 @@ -30,6 +30,7 @@ use codex_state::StateRuntime;
@@ -197,7 +197,15 @@ index f87786eafb..d9f1c13e67 100644
          }
          Some(Subcommand::Exec(mut exec_cli)) => {
              reject_remote_mode_for_subcommand(
-@@ -1426,7 +1443,7 @@ async fn cli_main(
+@@ -1281,6 +1298,7 @@ async fn cli_main(
+                     startup_config,
+                 )
+                 .await
++                .map(|()| ExitCode::SUCCESS)
+                 .map_err(Into::into);
+             }
+             match subcommand {
+@@ -1426,7 +1444,7 @@ async fn cli_main(
                      AppServerDaemonSubcommand::PidUpdateLoop {
                          check_package_ownership: true,
                          ..
@@ -206,7 +214,7 @@ index f87786eafb..d9f1c13e67 100644
                      AppServerDaemonSubcommand::Update {
                          from_cli: false, ..
                      }
-@@ -1536,6 +1553,8 @@ async fn cli_main(
+@@ -1536,6 +1554,8 @@ async fn cli_main(
              last,
              all,
              include_non_interactive,
@@ -215,7 +223,7 @@ index f87786eafb..d9f1c13e67 100644
              remote,
              config_overrides,
          })) => {
-@@ -1549,6 +1568,8 @@ async fn cli_main(
+@@ -1549,6 +1569,8 @@ async fn cli_main(
                  include_non_interactive,
                  config_overrides,
              );
@@ -224,7 +232,7 @@ index f87786eafb..d9f1c13e67 100644
              let exit_info = run_interactive_tui(
                  interactive,
                  remote.remote.or(root_remote.clone()),
-@@ -1558,7 +1579,7 @@ async fn cli_main(
+@@ -1558,7 +1580,7 @@ async fn cli_main(
                  arg0_paths.clone(),
              )
              .await?;
@@ -233,7 +241,7 @@ index f87786eafb..d9f1c13e67 100644
          }
          Some(Subcommand::Archive(cmd)) => {
              let output = run_session_archive_cli_command(
-@@ -1658,7 +1679,7 @@ async fn cli_main(
+@@ -1658,7 +1680,7 @@ async fn cli_main(
                  arg0_paths.clone(),
              )
              .await?;
@@ -242,7 +250,7 @@ index f87786eafb..d9f1c13e67 100644
          }
          Some(Subcommand::Login(mut login_cli)) => {
              reject_remote_mode_for_subcommand(
-@@ -1783,7 +1804,7 @@ async fn cli_main(
+@@ -1783,7 +1805,7 @@ async fn cli_main(
                      .parse_overrides()
                      .map_err(anyhow::Error::msg)?;
                  sandbox_setup::run(setup_cli, config_profile.cloned(), cli_overrides).await?;
@@ -251,7 +259,7 @@ index f87786eafb..d9f1c13e67 100644
              }
              reject_remote_mode_for_subcommand(
                  root_remote.as_deref(),
-@@ -1791,7 +1812,8 @@ async fn cli_main(
+@@ -1791,7 +1813,8 @@ async fn cli_main(
                  "sandbox",
              )?;
              if let Some(SandboxSubcommand::Uninstall(command)) = subcommand {
@@ -261,7 +269,7 @@ index f87786eafb..d9f1c13e67 100644
              }
              let loader_overrides = loader_overrides_for_profile(config_profile)?;
              #[cfg(target_os = "macos")]
-@@ -1971,7 +1993,7 @@ async fn cli_main(
+@@ -1971,7 +1994,7 @@ async fn cli_main(
          },
      }
  
@@ -270,7 +278,7 @@ index f87786eafb..d9f1c13e67 100644
  }
  
  fn profile_v2_for_subcommand<'a>(
-@@ -2498,6 +2520,8 @@ async fn run_interactive_tui(
+@@ -2498,6 +2521,8 @@ async fn run_interactive_tui(
      remote_auth_token_env: Option<String>,
      arg0_paths: Arg0DispatchPaths,
  ) -> std::io::Result<AppExitInfo> {
@@ -279,7 +287,7 @@ index f87786eafb..d9f1c13e67 100644
      if interactive.no_daemon {
          if interactive.agents_overview {
              return Ok(AppExitInfo::fatal(
-@@ -2773,6 +2797,7 @@ fn merge_interactive_cli_flags(interactive: &mut TuiCli, subcommand_cli: TuiCli)
+@@ -2773,6 +2798,7 @@ fn merge_interactive_cli_flags(interactive: &mut TuiCli, subcommand_cli: TuiCli)
          web_search,
          no_alt_screen,
          no_daemon,
@@ -287,7 +295,7 @@ index f87786eafb..d9f1c13e67 100644
          prompt,
          mut config_overrides,
          ..
-@@ -2794,6 +2819,9 @@ fn merge_interactive_cli_flags(interactive: &mut TuiCli, subcommand_cli: TuiCli)
+@@ -2794,6 +2820,9 @@ fn merge_interactive_cli_flags(interactive: &mut TuiCli, subcommand_cli: TuiCli)
      }
      interactive.no_alt_screen |= no_alt_screen;
      interactive.no_daemon |= no_daemon;
@@ -297,7 +305,7 @@ index f87786eafb..d9f1c13e67 100644
      if strict_config {
          interactive.strict_config = true;
      }
-@@ -3037,6 +3065,8 @@ enabled = true
+@@ -3037,6 +3066,8 @@ enabled = true
              last,
              all,
              include_non_interactive,
@@ -306,7 +314,7 @@ index f87786eafb..d9f1c13e67 100644
              remote: _,
              config_overrides: resume_cli,
          }) = subcommand.expect("resume present")
-@@ -3045,7 +3075,7 @@ enabled = true
+@@ -3045,7 +3076,7 @@ enabled = true
          };
          let SessionTuiCli(resume_cli) = resume_cli;
  
@@ -315,7 +323,7 @@ index f87786eafb..d9f1c13e67 100644
              interactive,
              root_overrides,
              session_id,
-@@ -3053,7 +3083,10 @@ enabled = true
+@@ -3053,7 +3084,10 @@ enabled = true
              all,
              include_non_interactive,
              resume_cli,
@@ -327,7 +335,7 @@ index f87786eafb..d9f1c13e67 100644
      }
  
      fn finalize_fork_from_args(args: &[&str]) -> TuiCli {
-@@ -3958,6 +3991,78 @@ enabled = true
+@@ -3958,6 +3992,78 @@ enabled = true
          ");
      }
  
@@ -406,7 +414,7 @@ index f87786eafb..d9f1c13e67 100644
      #[test]
      fn format_exit_messages_includes_session_id_for_fatal_exit_without_resume_hint() {
          let exit_info = AppExitInfo {
-@@ -4085,6 +4190,26 @@ enabled = true
+@@ -4085,6 +4191,26 @@ enabled = true
          }
      }
  
@@ -433,7 +441,7 @@ index f87786eafb..d9f1c13e67 100644
      #[test]
      fn resume_and_fork_preserve_no_alt_screen() {
          for (command, finalize) in [
-@@ -4159,6 +4284,61 @@ enabled = true
+@@ -4159,6 +4285,61 @@ enabled = true
          assert_eq!(interactive.prompt.as_deref(), Some("continue here"));
      }
  
@@ -495,7 +503,7 @@ index f87786eafb..d9f1c13e67 100644
      #[test]
      fn resume_all_flag_sets_show_all() {
          let interactive = finalize_resume_from_args(["codex", "resume", "--all"].as_ref());
-@@ -4166,6 +4346,22 @@ enabled = true
+@@ -4166,6 +4347,22 @@ enabled = true
          assert!(interactive.resume_show_all);
      }
  
