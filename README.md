@@ -1,12 +1,13 @@
 # codex-custom
 
 This repository pins the upstream [OpenAI Codex](https://github.com/openai/codex)
-repository as a submodule at commit `a9b0815167c27ab13719dd12d13b63e02b70d221`
-from upstream `main`. The custom version is `0.163.0-k.a9b08151`. It carries a
+repository as a submodule at commit `a96fa4f220700544a1202ec7ae411e432715151f`
+from upstream `main`. The custom version is `0.165.1-k.a96fa4f2`. It carries a
 small, ordered patch series:
 
 1. [`patches/codex-customizations.patch`](patches/codex-customizations.patch)
-   contains the UI, Reserve opt-out, release version, and capacity-retry code.
+   contains the UI, Reserve opt-out, release version, capacity-retry code, and
+   outgoing request metadata compatibility fix.
 2. [`patches/codex-customizations-tests.patch`](patches/codex-customizations-tests.patch)
    contains their corresponding test assertions and snapshots, including the
    custom version snapshots.
@@ -73,18 +74,21 @@ retry budget, server retry advice, exponential backoff, and transport fallback a
 is shared with other retryable stream errors, not reset by switching error types.
 Retries remain interruptible. With
 `--exit-on-quota-exceeded`, only a terminal capacity error after retries are
-exhausted requests a supervised restart; retry notifications from either the
-main thread or a subagent do not stop the instance. The final error retains its
+exhausted on the primary thread requests a supervised restart; retry notifications
+from either the main thread or a subagent do not stop the instance. The final error retains its
 model-capacity classification, separate from quota and usage-limit errors.
 
 The companion test patch has no runtime effect. It keeps the original
 customizations' tests separate from their implementation and records the
-expected auto-dismissed UI and `0.163.0-k.a9b08151` snapshot output.
+expected auto-dismissed UI and `0.165.1-k.a96fa4f2` snapshot output.
 
 The quota patch adds `--exit-on-quota-exceeded` to interactive Codex. With the
-flag present, a terminal typed `UsageLimitExceeded` error from either the main
-thread or any tracked subagent follows the normal notification path and then
+flag present, a terminal typed `UsageLimitExceeded` error from the primary
+thread follows the normal notification path and then
 requests the same shutdown-first exit used by an ordinary interactive quit.
+Subagent errors follow normal notification routing without requesting a restart,
+even when the subagent is displayed. This restriction also applies to capacity,
+invalid-credential, and disconnected-stream recovery.
 After the app server, threads, terminal, and telemetry have been cleaned up,
 the CLI emits one final unstyled line, flushes it, and returns process status
 `75` (`EX_TEMPFAIL`) through normal unwinding. The status is the authoritative
@@ -104,6 +108,15 @@ Typed model-capacity errors use `"outcome":"model-capacity"` and
 provider so the credential can be returned and account selection can prefer
 accounts that have not recently refused capacity.
 
+Terminal stream disconnects use `"outcome":"stream-disconnected"` with no
+credential failure or unavailable time. This includes the processing failure
+`stream disconnected before completion: An error occurred while processing your request.`
+after retries finish.
+
+Outgoing standard and Responses Lite requests omit `content_item_metadata`,
+which the deployed API rejects, including when resuming saved history. Other
+metadata and the persisted conversation remain intact.
+
 An external supervisor should interpret the marker only after status `75` and
 search backward through its captured PTY tail so terminal cleanup output after
 the marker cannot hide the recovery request. A missing or malformed marker at
@@ -119,9 +132,9 @@ supervisor validates the sidecar, performs any out-of-process recovery required
 by its own policy, and passes the path to the hidden
 `codex resume ... --start-immediately --restore-input-handoff PATH` option. Codex
 restores each saved message into the normal queue independently, submits
-`You were interrupted, continue work` ahead of them, and puts the unfinished
-draft back in the composer. Saved messages follow in their original order, one
-per turn. The sidecar is retained after restore for at-least-once delivery if the
+`You were interrupted, continue work` through the initial-message path ahead of
+them, and puts the unfinished draft back in the composer. Saved messages follow in
+their original order, one per turn. The sidecar is retained after restore for at-least-once delivery if the
 restarted process exits again before all queued input is delivered. Other retryable
 errors and runs without the flag retain their existing behavior. The flag can be
 supplied to a fresh interactive run or to `codex resume` and `codex fork`.
@@ -132,17 +145,28 @@ lock ownership, and shutdown within the supervised process. Input awaiting image
 preparation is returned to the queue before the handoff is saved.
 
 The start-immediately continuation reactivates a paused, blocked, or usage-limited goal,
-then places `You were interrupted, continue work` first in the queue and submits
-it as soon as startup quota recovery permits. If the resumed turn is still
-running, Codex orders its interruption before the locally queued continuation;
-even if the old turn completes concurrently, the interrupt cannot land on the
-new turn.
+then submits `You were interrupted, continue work` as soon as startup quota recovery
+permits. It uses the existing initial-message path, which starts a turn when idle
+or steers a running turn. Goal activation can start an automatic turn while the
+quota read is pending; treating the continuation as an ordinary queued follow-up
+would leave it waiting for that turn to finish. No recovery interrupt is sent,
+because interrupting a goal turn can also pause the goal in core. Restored follow-ups
+remain queued in order, and the unsent draft remains in the composer.
 
-Versions use `<major>.<next-stable-minor>.0-k.<commit-first8>`. Take the latest
-stable upstream release, increment its minor version, and reset the patch version
-to zero. Append `-k.` and the first eight characters of the pinned upstream commit.
-For example, stable `0.162.1` and commit `a9b0815167c…` produce
-`0.163.0-k.a9b08151`. Builds use that exact commit; installation never fetches
+Recovery arguments use the live primary widget's model, provider, tier, and reasoning
+settings while that thread is displayed. The cached primary session is used when
+viewing a different thread. Previously the cache always won, so an exit between
+`/fast` changing the widget and its asynchronous cache update could write the old
+tier into the handoff and carry it into subsequent restarts. Both enabling and
+disabling Fast mode are preserved, without taking a displayed subagent's settings.
+
+Versions use `<major>.<next-stable-minor>.<patch>-k.<commit-first8>`. For a new
+upstream pin, take the latest stable upstream release, increment its minor version,
+and reset the patch version to zero. Increment the patch version for downstream
+fixes at the same upstream pin. Append `-k.` and the first eight characters of the
+pinned upstream commit.
+For example, stable `0.162.1` and commit `c22a06c1807…` produce
+`0.163.0-k.c22a06c1`. Builds use that exact commit; installation never fetches
 a moving upstream branch.
 
 The auth-file patch exposes one complete, generic managed-credential protocol:
@@ -306,11 +330,16 @@ and testing.
    now implemented upstream, together with their installer and documentation
    references.
 5. Apply the remaining patches and run `just fmt` from `codex/codex-rs`. Run every
-   focused test plus the `codex-tui` and `codex-cli` crate suites. Auth-file
+   focused test plus the `codex-tui` and `codex-cli` crate suites, including CLI
+   binary and integration tests (`cargo test -p codex-cli`, without `--lib`).
+   Build both installer binaries with
+   `cargo build --release --bin codex --bin codex-code-mode-host`; library-only
+   checks do not cover CLI subcommand exit paths. Auth-file
    selection is process-local, so upstream auth tests cannot inherit it from a
    supervising Codex process. Unset `CODEX_SQLITE_HOME` and `NO_COLOR` for test
    commands so database paths stay within the test homes and color assertions
-   use their expected terminal output. Set `BROWSER=/bin/true` to prevent local
+   use their expected terminal output. Set `RUST_MIN_STACK=16777216` for the
+   upstream async test fixtures and `BROWSER=/bin/true` to prevent local
    OAuth fixtures from opening the desktop browser. Run tests with `umask 077` so temporary
    IDE socket directories satisfy the permission checks.
 6. Reverse the patches in reverse order and verify the submodule is clean.

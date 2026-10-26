@@ -1,8 +1,8 @@
 diff --git a/codex-rs/arg0/src/lib.rs b/codex-rs/arg0/src/lib.rs
-index 33d2e65989..1e87a8cc9b 100644
+index 2af8624b65..f4ae507009 100644
 --- a/codex-rs/arg0/src/lib.rs
 +++ b/codex-rs/arg0/src/lib.rs
-@@ -182,17 +182,18 @@ fn prepare_path_env_var_with_aliases(
+@@ -184,17 +184,18 @@ fn prepare_path_env_var_with_aliases(
  ///     `codex-linux-sandbox` helper path (falling back to the current
  ///     executable if needed) so children can re-invoke the sandbox when running
  ///     on Linux.
@@ -25,7 +25,7 @@ index 33d2e65989..1e87a8cc9b 100644
  {
      // Retain the TempDir so it exists for the lifetime of the invocation of
      // this executable. Admittedly, we could invoke `keep()` on it, but it
-@@ -220,14 +221,14 @@ where
+@@ -222,14 +223,14 @@ where
      }
  }
  
@@ -43,16 +43,16 @@ index 33d2e65989..1e87a8cc9b 100644
  {
      let paths = Arg0DispatchPaths {
          main_execve_wrapper_exe: None,
-@@ -688,7 +689,7 @@ mod tests {
+@@ -715,7 +716,7 @@ mod tests {
+     }
  
-     #[cfg(unix)]
      #[test]
 -    fn run_main_with_arg0_guard_keeps_aliases_alive_until_main_returns() -> anyhow::Result<()> {
 +    fn run_main_with_arg0_guard_keeps_aliases_alive_and_returns_main_value() -> anyhow::Result<()> {
          let temp_dir = TempDir::new()?;
+         let temp_path = temp_dir.path().to_path_buf();
          let alias_path = temp_dir.path().join("codex-helper-alias");
-         fs::write(&alias_path, b"")?;
-@@ -703,7 +704,7 @@ mod tests {
+@@ -731,7 +732,7 @@ mod tests {
              },
          );
  
@@ -61,23 +61,22 @@ index 33d2e65989..1e87a8cc9b 100644
              /*path_entry_guard*/ Some(path_entry),
              Some(PathBuf::from("/usr/bin/codex")),
              |_paths| async move {
-@@ -720,9 +721,12 @@ mod tests {
+@@ -748,10 +749,12 @@ mod tests {
                      "alias path disappeared while main future was running: {}",
                      alias_path.display()
                  );
 -                Ok(())
 +                Ok(75)
              },
--        ))
-+        ))?;
+         ))?;
+         assert!(!temp_path.exists());
 +
 +        assert_eq!(result, 75);
-+        Ok(())
+         Ok(())
      }
  
-     #[test]
 diff --git a/codex-rs/cli/src/main.rs b/codex-rs/cli/src/main.rs
-index 9d540c3124..1235c1c263 100644
+index f87786eafb..fb88c222bd 100644
 --- a/codex-rs/cli/src/main.rs
 +++ b/codex-rs/cli/src/main.rs
 @@ -30,6 +30,7 @@ use codex_state::StateRuntime;
@@ -96,7 +95,7 @@ index 9d540c3124..1235c1c263 100644
  use std::sync::Arc;
  use supports_color::Stream;
  
-@@ -369,6 +371,24 @@ struct ResumeCommand {
+@@ -375,6 +377,24 @@ struct ResumeCommand {
      #[arg(long = "include-non-interactive", default_value_t = false)]
      include_non_interactive: bool,
  
@@ -121,7 +120,7 @@ index 9d540c3124..1235c1c263 100644
      #[clap(flatten)]
      remote: InteractiveRemoteOptions,
  
-@@ -757,16 +777,17 @@ fn parse_socket_path(raw: &str) -> Result<AbsolutePathBuf, String> {
+@@ -769,16 +789,17 @@ fn parse_socket_path(raw: &str) -> Result<AbsolutePathBuf, String> {
  fn handle_app_exit(
      exit_info: AppExitInfo,
      cli_executable: Option<&std::path::Path>,
@@ -143,7 +142,7 @@ index 9d540c3124..1235c1c263 100644
      };
  
      let update_action = exit_info.update_action;
-@@ -776,14 +797,11 @@ fn handle_app_exit(
+@@ -788,14 +809,11 @@ fn handle_app_exit(
              println!("{line}");
          }
      }
@@ -161,7 +160,7 @@ index 9d540c3124..1235c1c263 100644
  }
  
  /// Run the update action and print the result.
-@@ -1028,20 +1046,19 @@ fn stage_str(stage: Stage) -> &'static str {
+@@ -1040,20 +1058,19 @@ fn stage_str(stage: Stage) -> &'static str {
      }
  }
  
@@ -185,7 +184,7 @@ index 9d540c3124..1235c1c263 100644
      let MultitoolCli {
          config_overrides: mut root_config_overrides,
          feature_toggles,
-@@ -1144,10 +1161,10 @@ async fn cli_main(
+@@ -1157,10 +1174,10 @@ async fn cli_main(
                  arg0_paths.clone(),
              )
              .await?;
@@ -198,7 +197,15 @@ index 9d540c3124..1235c1c263 100644
          }
          Some(Subcommand::Exec(mut exec_cli)) => {
              reject_remote_mode_for_subcommand(
-@@ -1348,7 +1365,7 @@ async fn cli_main(
+@@ -1281,6 +1298,7 @@ async fn cli_main(
+                     startup_config,
+                 )
+                 .await
++                .map(|()| ExitCode::SUCCESS)
+                 .map_err(Into::into);
+             }
+             match subcommand {
+@@ -1426,7 +1444,7 @@ async fn cli_main(
                      AppServerDaemonSubcommand::PidUpdateLoop {
                          check_package_ownership: true,
                          ..
@@ -207,7 +214,7 @@ index 9d540c3124..1235c1c263 100644
                      AppServerDaemonSubcommand::Update {
                          from_cli: false, ..
                      }
-@@ -1458,6 +1475,8 @@ async fn cli_main(
+@@ -1536,6 +1554,8 @@ async fn cli_main(
              last,
              all,
              include_non_interactive,
@@ -216,7 +223,7 @@ index 9d540c3124..1235c1c263 100644
              remote,
              config_overrides,
          })) => {
-@@ -1471,6 +1490,8 @@ async fn cli_main(
+@@ -1549,6 +1569,8 @@ async fn cli_main(
                  include_non_interactive,
                  config_overrides,
              );
@@ -225,7 +232,7 @@ index 9d540c3124..1235c1c263 100644
              let exit_info = run_interactive_tui(
                  interactive,
                  remote.remote.or(root_remote.clone()),
-@@ -1480,7 +1501,7 @@ async fn cli_main(
+@@ -1558,7 +1580,7 @@ async fn cli_main(
                  arg0_paths.clone(),
              )
              .await?;
@@ -234,7 +241,7 @@ index 9d540c3124..1235c1c263 100644
          }
          Some(Subcommand::Archive(cmd)) => {
              let output = run_session_archive_cli_command(
-@@ -1567,7 +1588,7 @@ async fn cli_main(
+@@ -1658,7 +1680,7 @@ async fn cli_main(
                  arg0_paths.clone(),
              )
              .await?;
@@ -243,7 +250,7 @@ index 9d540c3124..1235c1c263 100644
          }
          Some(Subcommand::Login(mut login_cli)) => {
              reject_remote_mode_for_subcommand(
-@@ -1692,7 +1713,7 @@ async fn cli_main(
+@@ -1783,7 +1805,7 @@ async fn cli_main(
                      .parse_overrides()
                      .map_err(anyhow::Error::msg)?;
                  sandbox_setup::run(setup_cli, config_profile.cloned(), cli_overrides).await?;
@@ -252,7 +259,7 @@ index 9d540c3124..1235c1c263 100644
              }
              reject_remote_mode_for_subcommand(
                  root_remote.as_deref(),
-@@ -1700,7 +1721,8 @@ async fn cli_main(
+@@ -1791,7 +1813,8 @@ async fn cli_main(
                  "sandbox",
              )?;
              if let Some(SandboxSubcommand::Uninstall(command)) = subcommand {
@@ -262,7 +269,7 @@ index 9d540c3124..1235c1c263 100644
              }
              let loader_overrides = loader_overrides_for_profile(config_profile)?;
              #[cfg(target_os = "macos")]
-@@ -1880,7 +1902,7 @@ async fn cli_main(
+@@ -1971,7 +1994,7 @@ async fn cli_main(
          },
      }
  
@@ -271,7 +278,7 @@ index 9d540c3124..1235c1c263 100644
  }
  
  fn profile_v2_for_subcommand<'a>(
-@@ -2398,6 +2420,8 @@ async fn run_interactive_tui(
+@@ -2498,6 +2521,8 @@ async fn run_interactive_tui(
      remote_auth_token_env: Option<String>,
      arg0_paths: Arg0DispatchPaths,
  ) -> std::io::Result<AppExitInfo> {
@@ -280,7 +287,7 @@ index 9d540c3124..1235c1c263 100644
      if interactive.no_daemon {
          if interactive.agents_overview {
              return Ok(AppExitInfo::fatal(
-@@ -2673,6 +2697,7 @@ fn merge_interactive_cli_flags(interactive: &mut TuiCli, subcommand_cli: TuiCli)
+@@ -2773,6 +2798,7 @@ fn merge_interactive_cli_flags(interactive: &mut TuiCli, subcommand_cli: TuiCli)
          web_search,
          no_alt_screen,
          no_daemon,
@@ -288,7 +295,7 @@ index 9d540c3124..1235c1c263 100644
          prompt,
          mut config_overrides,
          ..
-@@ -2694,6 +2719,9 @@ fn merge_interactive_cli_flags(interactive: &mut TuiCli, subcommand_cli: TuiCli)
+@@ -2794,6 +2820,9 @@ fn merge_interactive_cli_flags(interactive: &mut TuiCli, subcommand_cli: TuiCli)
      }
      interactive.no_alt_screen |= no_alt_screen;
      interactive.no_daemon |= no_daemon;
@@ -298,7 +305,7 @@ index 9d540c3124..1235c1c263 100644
      if strict_config {
          interactive.strict_config = true;
      }
-@@ -2937,6 +2965,8 @@ enabled = true
+@@ -3037,6 +3066,8 @@ enabled = true
              last,
              all,
              include_non_interactive,
@@ -307,7 +314,7 @@ index 9d540c3124..1235c1c263 100644
              remote: _,
              config_overrides: resume_cli,
          }) = subcommand.expect("resume present")
-@@ -2945,7 +2975,7 @@ enabled = true
+@@ -3045,7 +3076,7 @@ enabled = true
          };
          let SessionTuiCli(resume_cli) = resume_cli;
  
@@ -316,7 +323,7 @@ index 9d540c3124..1235c1c263 100644
              interactive,
              root_overrides,
              session_id,
-@@ -2953,7 +2983,10 @@ enabled = true
+@@ -3053,7 +3084,10 @@ enabled = true
              all,
              include_non_interactive,
              resume_cli,
@@ -328,7 +335,7 @@ index 9d540c3124..1235c1c263 100644
      }
  
      fn finalize_fork_from_args(args: &[&str]) -> TuiCli {
-@@ -3858,6 +3891,78 @@ enabled = true
+@@ -3958,6 +3992,78 @@ enabled = true
          ");
      }
  
@@ -407,7 +414,7 @@ index 9d540c3124..1235c1c263 100644
      #[test]
      fn format_exit_messages_includes_session_id_for_fatal_exit_without_resume_hint() {
          let exit_info = AppExitInfo {
-@@ -3985,6 +4090,26 @@ enabled = true
+@@ -4085,6 +4191,26 @@ enabled = true
          }
      }
  
@@ -434,7 +441,7 @@ index 9d540c3124..1235c1c263 100644
      #[test]
      fn resume_and_fork_preserve_no_alt_screen() {
          for (command, finalize) in [
-@@ -4059,6 +4184,61 @@ enabled = true
+@@ -4159,6 +4285,61 @@ enabled = true
          assert_eq!(interactive.prompt.as_deref(), Some("continue here"));
      }
  
@@ -496,7 +503,7 @@ index 9d540c3124..1235c1c263 100644
      #[test]
      fn resume_all_flag_sets_show_all() {
          let interactive = finalize_resume_from_args(["codex", "resume", "--all"].as_ref());
-@@ -4066,6 +4246,22 @@ enabled = true
+@@ -4166,6 +4347,22 @@ enabled = true
          assert!(interactive.resume_show_all);
      }
  
@@ -520,10 +527,10 @@ index 9d540c3124..1235c1c263 100644
      fn resume_include_non_interactive_flag_sets_source_filter_override() {
          let interactive =
 diff --git a/codex-rs/tui/src/app.rs b/codex-rs/tui/src/app.rs
-index 1b07e9826d..c722cfdb09 100644
+index 1b3b21e07f..ded6ea12f6 100644
 --- a/codex-rs/tui/src/app.rs
 +++ b/codex-rs/tui/src/app.rs
-@@ -494,9 +494,23 @@ pub enum ExitReason {
+@@ -498,9 +498,24 @@ pub enum ExitReason {
      TurnInterrupted,
      /// The current thread was deleted, rather than disconnected.
      ThreadRemoved,
@@ -542,16 +549,17 @@ index 1b07e9826d..c722cfdb09 100644
 +    QuotaExhausted,
 +    CredentialInvalid,
 +    ModelCapacity,
++    StreamDisconnected,
 +}
 +
  fn resumable_thread(
      thread_id: Option<ThreadId>,
      thread_name: Option<String>,
-@@ -609,6 +623,17 @@ pub(crate) struct App {
+@@ -614,6 +629,17 @@ pub(crate) struct App {
      /// Retained through all loop exits so shutdown cannot interrupt stop followed by start.
      daemon_restart: Option<JoinHandle<anyhow::Result<codex_app_server_daemon::LifecycleOutput>>>,
  
-+    /// Whether a terminal quota error in any tracked thread should shut down the TUI.
++    /// Whether a terminal recoverable error on the primary thread should shut down the TUI.
 +    exit_on_quota_exceeded: bool,
 +    /// The resumable primary thread recorded by the first quota error that requested shutdown.
 +    quota_exceeded_exit_thread_id: Option<ThreadId>,
@@ -565,7 +573,7 @@ index 1b07e9826d..c722cfdb09 100644
      /// Tracks the thread we intentionally shut down while exiting the app.
      ///
      /// When this matches the active thread, its `ShutdownComplete` should lead to
-@@ -922,6 +947,11 @@ impl App {
+@@ -933,6 +959,11 @@ impl App {
              return Ok(AppRunControl::Exit(ExitReason::UserRequested));
          }
          let screen_size = tui.screen_size_for_event(&event)?;
@@ -578,10 +586,10 @@ index 1b07e9826d..c722cfdb09 100644
              &event,
              TuiEvent::Key(_) | TuiEvent::Mouse(_) | TuiEvent::Paste(_) | TuiEvent::FocusLost
 diff --git a/codex-rs/tui/src/app/app_server_events.rs b/codex-rs/tui/src/app/app_server_events.rs
-index 4ceb678804..498b1428c3 100644
+index cd8f1678d6..54c0ab2e90 100644
 --- a/codex-rs/tui/src/app/app_server_events.rs
 +++ b/codex-rs/tui/src/app/app_server_events.rs
-@@ -2,12 +2,14 @@
+@@ -2,6 +2,7 @@
  //! Hidden structured threads reject requests instead of entering interactive routing.
  
  use super::App;
@@ -589,27 +597,29 @@ index 4ceb678804..498b1428c3 100644
  use super::ThreadBufferedEvent;
  use super::app_server_event_targets::ServerNotificationThreadTarget;
  use super::app_server_event_targets::server_notification_thread_target;
- use super::app_server_event_targets::server_request_thread_id;
+@@ -9,6 +10,7 @@ use super::app_server_event_targets::server_request_thread_id;
+ use super::app_server_requests::BufferedServerRequest;
  use crate::app_command::AppCommand;
  use crate::app_event::AppEvent;
 +use crate::app_event::ExitMode;
  use crate::app_event::RateLimitRefreshOrigin;
  #[cfg(any(target_os = "windows", test))]
  use crate::app_event::WindowsSandboxEnableMode;
-@@ -18,6 +20,7 @@ use codex_app_server_client::AppServerEvent;
+@@ -19,6 +21,7 @@ use codex_app_server_client::AppServerEvent;
  use codex_app_server_client::TypedRequestError;
  use codex_app_server_protocol::AuthMode;
  use codex_app_server_protocol::ClientRequest;
 +use codex_app_server_protocol::CodexErrorInfo;
+ use codex_app_server_protocol::JSONRPCErrorError;
  use codex_app_server_protocol::RateLimitReachedType;
  use codex_app_server_protocol::RequestId;
- use codex_app_server_protocol::ServerNotification;
-@@ -29,10 +32,75 @@ use codex_app_server_protocol::ThreadReadResponse;
+@@ -31,11 +34,82 @@ use codex_app_server_protocol::ThreadReadResponse;
  use codex_app_server_protocol::ThreadSource;
  use codex_app_server_protocol::ThreadStatus;
  use codex_protocol::ThreadId;
 +use codex_protocol::config_types::SERVICE_TIER_DEFAULT_REQUEST_VALUE;
  use codex_protocol::protocol::SubAgentSource;
+ use codex_protocol::request_permissions::RequestPermissionProfile as CoreRequestPermissionProfile;
  use std::time::Duration;
  
 +fn quota_recovery_config_override(key: &str, value: &str) -> String {
@@ -618,22 +628,26 @@ index 4ceb678804..498b1428c3 100644
 +
  impl App {
 +    pub(super) fn quota_recovery_args(&self) -> Vec<String> {
-+        let (model, model_provider, service_tier, reasoning_effort) =
-+            if let Some(session) = self.primary_session_configured.as_ref() {
-+                (
-+                    session.model.clone(),
-+                    session.model_provider_id.clone(),
-+                    session.service_tier.clone(),
-+                    session.reasoning_effort.clone(),
-+                )
-+            } else {
-+                (
-+                    self.chat_widget.current_model().to_string(),
-+                    self.config.model_provider_id.clone(),
-+                    self.chat_widget.current_service_tier().map(str::to_string),
-+                    self.chat_widget.current_reasoning_effort(),
-+                )
-+            };
++        // UI selections such as /fast reach the widget before the asynchronous session cache.
++        // Use that cache only when another thread is displayed.
++        let (model, model_provider, service_tier, reasoning_effort) = if let Some(session) =
++            self.primary_session_configured.as_ref()
++            && self.chat_widget.thread_id() != Some(session.thread_id)
++        {
++            (
++                session.model.clone(),
++                session.model_provider_id.clone(),
++                session.service_tier.clone(),
++                session.reasoning_effort.clone(),
++            )
++        } else {
++            (
++                self.chat_widget.current_model().to_string(),
++                self.chat_widget.config_ref().model_provider_id.clone(),
++                self.chat_widget.current_service_tier().map(str::to_string),
++                self.chat_widget.current_reasoning_effort(),
++            )
++        };
 +        let mut args = vec![
 +            "--model".to_string(),
 +            model,
@@ -666,6 +680,8 @@ index 4ceb678804..498b1428c3 100644
 +        // Freeze local input before the error notification can finalize the turn and drain queues.
 +        self.chat_widget
 +            .set_queue_autosend_suppressed(/*suppressed*/ true);
++        self.chat_widget
++            .set_initial_user_message_submit_suppressed(/*suppressed*/ true);
 +        let resume_args = self.quota_recovery_args();
 +        match self.chat_widget.persist_quota_handoff(
 +            resumable_thread_id,
@@ -677,10 +693,10 @@ index 4ceb678804..498b1428c3 100644
 +        }
 +    }
 +
-     pub(super) fn refresh_mcp_startup_expected_servers_from_config(&mut self) {
-         if self
-             .current_displayed_thread_id()
-@@ -310,6 +378,16 @@ impl App {
+     async fn reject_unsupported_app_server_request(
+         &mut self,
+         unsupported: super::app_server_requests::UnsupportedAppServerRequest,
+@@ -351,6 +425,16 @@ impl App {
              }
  
              ServerNotification::AccountRateLimitsUpdated(notification) => {
@@ -697,24 +713,34 @@ index 4ceb678804..498b1428c3 100644
                  let workspace_hard_stop = matches!(
                      notification.rate_limits.rate_limit_reached_type,
                      Some(
-@@ -424,6 +502,27 @@ impl App {
+@@ -465,6 +549,37 @@ impl App {
              _ => {}
          }
  
 +        let outcome = match &notification {
-+            ServerNotification::Error(notification) if self.exit_on_quota_exceeded => {
++            ServerNotification::Error(notification)
++                if self.exit_on_quota_exceeded && !notification.will_retry =>
++            {
 +                match notification.error.codex_error_info.as_ref() {
-+                    Some(CodexErrorInfo::ServerOverloaded) if !notification.will_retry => {
++                    Some(CodexErrorInfo::ServerOverloaded) => {
 +                        Some(SupervisedOutcome::ModelCapacity)
 +                    }
-+                    Some(CodexErrorInfo::UsageLimitExceeded) if !notification.will_retry => {
++                    Some(CodexErrorInfo::UsageLimitExceeded) => {
 +                        Some(SupervisedOutcome::QuotaExhausted)
 +                    }
 +                    Some(CodexErrorInfo::Unauthorized)
-+                        if !notification.will_retry
-+                            && codex_login::managed_credential_is_invalid() =>
++                        if codex_login::managed_credential_is_invalid() =>
 +                    {
 +                        Some(SupervisedOutcome::CredentialInvalid)
++                    }
++                    Some(CodexErrorInfo::ResponseStreamDisconnected { .. }) => {
++                        Some(SupervisedOutcome::StreamDisconnected)
++                    }
++                    Some(CodexErrorInfo::Other)
++                        if notification.error.message
++                            == "stream disconnected before completion: An error occurred while processing your request." =>
++                    {
++                        Some(SupervisedOutcome::StreamDisconnected)
 +                    }
 +                    _ => None,
 +                }
@@ -725,12 +751,13 @@ index 4ceb678804..498b1428c3 100644
          match server_notification_thread_target(&notification) {
              ServerNotificationThreadTarget::Thread(thread_id) => {
                  if self.current_displayed_thread_id() != Some(thread_id)
-@@ -472,6 +571,12 @@ impl App {
+@@ -513,6 +628,13 @@ impl App {
                  {
                      return;
                  }
-+                let request_quota_exit =
-+                    outcome.is_some() && self.quota_exceeded_exit_thread_id.is_none();
++                let request_quota_exit = outcome.is_some()
++                    && self.primary_thread_id == Some(thread_id)
++                    && self.quota_exceeded_exit_thread_id.is_none();
 +                if let Some(outcome) = outcome.filter(|_| request_quota_exit) {
 +                    self.supervised_outcome = outcome;
 +                    self.prepare_quota_exceeded_exit(thread_id);
@@ -738,7 +765,7 @@ index 4ceb678804..498b1428c3 100644
                  let result = if self.primary_thread_id.is_none() && !background_voice {
                      self.enqueue_primary_thread_notification(notification).await
                  } else {
-@@ -482,6 +587,10 @@ impl App {
+@@ -523,6 +645,10 @@ impl App {
                  if let Err(err) = result {
                      tracing::warn!("failed to enqueue app-server notification: {err}");
                  }
@@ -794,7 +821,7 @@ index f9932ced06..71f4168077 100644
              lines.push(message.to_string());
              let mut resume_command = disconnect.command.clone();
 diff --git a/codex-rs/tui/src/app/startup.rs b/codex-rs/tui/src/app/startup.rs
-index 4c329f3787..f724899e4a 100644
+index aacc60b90d..d7357a4677 100644
 --- a/codex-rs/tui/src/app/startup.rs
 +++ b/codex-rs/tui/src/app/startup.rs
 @@ -238,11 +238,14 @@ impl App {
@@ -812,7 +839,7 @@ index 4c329f3787..f724899e4a 100644
          state_db: Option<StateDbHandle>,
          environment_manager: Arc<EnvironmentManager>,
          startup_elapsed_before_app: Duration,
-@@ -946,6 +949,12 @@ See the Codex keymap documentation for supported actions and examples."
+@@ -1017,6 +1020,12 @@ See the Codex keymap documentation for supported actions and examples."
              daemon_cli_executable,
              pending_update_action: None,
              daemon_restart: None,
@@ -825,7 +852,7 @@ index 4c329f3787..f724899e4a 100644
              pending_shutdown_exit_thread_id: None,
              windows_sandbox: WindowsSandboxState {
                  prompt_after_trust: should_prompt_windows_sandbox_nux_at_startup
-@@ -1062,7 +1071,35 @@ See the Codex keymap documentation for supported actions and examples."
+@@ -1135,7 +1144,38 @@ See the Codex keymap documentation for supported actions and examples."
                          .add_info_message(notice.to_string(), /*hint*/ None);
                  }
              }
@@ -853,7 +880,10 @@ index 4c329f3787..f724899e4a 100644
 +                    .await
 +                {
 +                    Ok(resumed) => resumed,
-+                    Err(err) => return shutdown_on_startup_error(app_server, err).await,
++                    Err(err) => {
++                        return shutdown_on_startup_error(app_server, &mut other_backends, err)
++                            .await;
++                    }
 +                };
 +                if resumed {
 +                    app.chat_widget.submit_start_immediately_prompt();
@@ -862,9 +892,9 @@ index 4c329f3787..f724899e4a 100644
                  && should_prompt_for_paused_goal_after_startup_resume
                  && let Err(err) = startup_draft
                      .run_until(
-@@ -1076,6 +1113,15 @@ See the Codex keymap documentation for supported actions and examples."
+@@ -1149,6 +1186,15 @@ See the Codex keymap documentation for supported actions and examples."
              {
-                 return shutdown_on_startup_error(app_server, err).await;
+                 return shutdown_on_startup_error(app_server, &mut other_backends, err).await;
              }
 +        } else if let Some(path) = restore_input_handoff {
 +            return shutdown_on_startup_error(
@@ -878,7 +908,7 @@ index 4c329f3787..f724899e4a 100644
          }
          if !start_in_agents_overview
              && !pending_startup_thread_start
-@@ -1494,6 +1540,27 @@ See the Codex keymap documentation for supported actions and examples."
+@@ -1694,6 +1740,29 @@ See the Codex keymap documentation for supported actions and examples."
                  return Err(err);
              }
          };
@@ -894,7 +924,9 @@ index 4c329f3787..f724899e4a 100644
 +                outcome: app.supervised_outcome,
 +                unavailable_until: match app.supervised_outcome {
 +                    SupervisedOutcome::QuotaExhausted => app.quota_unavailable_until,
-+                    SupervisedOutcome::CredentialInvalid | SupervisedOutcome::ModelCapacity => None,
++                    SupervisedOutcome::CredentialInvalid
++                    | SupervisedOutcome::ModelCapacity
++                    | SupervisedOutcome::StreamDisconnected => None,
 +                },
 +                handoff_path: app
 +                    .quota_handoff_path
@@ -907,10 +939,10 @@ index 4c329f3787..f724899e4a 100644
      }
  }
 diff --git a/codex-rs/tui/src/app/test_support.rs b/codex-rs/tui/src/app/test_support.rs
-index 9394604dd2..7929d2eb01 100644
+index a0efb33101..691a96261b 100644
 --- a/codex-rs/tui/src/app/test_support.rs
 +++ b/codex-rs/tui/src/app/test_support.rs
-@@ -84,6 +84,12 @@ pub(crate) async fn make_test_app() -> Box<App> {
+@@ -85,6 +85,12 @@ pub(crate) async fn make_test_app() -> Box<App> {
          daemon_cli_executable: None,
          pending_update_action: None,
          daemon_restart: None,
@@ -924,10 +956,10 @@ index 9394604dd2..7929d2eb01 100644
          windows_sandbox: WindowsSandboxState::default(),
          thread_event_channels: HashMap::new(),
 diff --git a/codex-rs/tui/src/app/tests.rs b/codex-rs/tui/src/app/tests.rs
-index b4192b086f..d0b132e086 100644
+index 4f71fe7f70..b83a6036e3 100644
 --- a/codex-rs/tui/src/app/tests.rs
 +++ b/codex-rs/tui/src/app/tests.rs
-@@ -6261,6 +6261,12 @@ async fn make_test_app() -> Box<App> {
+@@ -6458,6 +6458,12 @@ async fn make_test_app() -> Box<App> {
          daemon_cli_executable: None,
          pending_update_action: None,
          daemon_restart: None,
@@ -940,7 +972,7 @@ index b4192b086f..d0b132e086 100644
          pending_shutdown_exit_thread_id: None,
          windows_sandbox: WindowsSandboxState::default(),
          thread_event_channels: HashMap::new(),
-@@ -6386,6 +6392,12 @@ pub(super) async fn make_test_app_with_channels() -> (
+@@ -6584,6 +6590,12 @@ pub(super) async fn make_test_app_with_channels() -> (
              daemon_cli_executable: None,
              pending_update_action: None,
              daemon_restart: None,
@@ -953,7 +985,7 @@ index b4192b086f..d0b132e086 100644
              pending_shutdown_exit_thread_id: None,
              windows_sandbox: WindowsSandboxState::default(),
              thread_event_channels: HashMap::new(),
-@@ -6641,6 +6653,44 @@ async fn set_thread_goal_draft_materializes_long_objective_and_confirms_before_p
+@@ -6839,6 +6851,44 @@ async fn set_thread_goal_draft_materializes_long_objective_and_confirms_before_p
      Ok(())
  }
  
@@ -998,11 +1030,23 @@ index b4192b086f..d0b132e086 100644
  #[tokio::test]
  async fn replace_goal_confirmation_snapshot() {
      let mut app = make_test_app().await;
+diff --git a/codex-rs/tui/src/app/tests/backend_ownership_tests.rs b/codex-rs/tui/src/app/tests/backend_ownership_tests.rs
+index b9ccf3fced..7de3f7680d 100644
+--- a/codex-rs/tui/src/app/tests/backend_ownership_tests.rs
++++ b/codex-rs/tui/src/app/tests/backend_ownership_tests.rs
+@@ -260,6 +260,7 @@ async fn startup_rejects_foreign_resume_and_fork_before_requests() -> Result<()>
+             Some(bootstrap),
+             selection,
+             app.app_server_target.clone(),
++            /*restore_input_handoff*/ None,
+         )
+         .await;
+         assert!(
 diff --git a/codex-rs/tui/src/app/tests/rate_limits.rs b/codex-rs/tui/src/app/tests/rate_limits.rs
-index 4af071c81e..3eff71415c 100644
+index 4af071c81e..e5ad714b0d 100644
 --- a/codex-rs/tui/src/app/tests/rate_limits.rs
 +++ b/codex-rs/tui/src/app/tests/rate_limits.rs
-@@ -105,6 +105,213 @@ fn deliver_usage_limit_error(app: &mut App) {
+@@ -105,6 +105,356 @@ fn deliver_usage_limit_error(app: &mut App) {
      );
  }
  
@@ -1039,7 +1083,7 @@ index 4af071c81e..3eff71415c 100644
 +}
 +
 +#[tokio::test]
-+async fn terminal_quota_error_exits_once_for_main_or_subagent() -> Result<()> {
++async fn terminal_quota_error_exits_once_only_for_main_thread() -> Result<()> {
 +    for error_from_subagent in [false, true] {
 +        let (mut app, mut app_event_rx, _op_rx) = make_test_app_with_channels().await;
 +        let app_server = crate::start_embedded_app_server_for_picker(app.chat_widget.config_ref())
@@ -1056,6 +1100,7 @@ index 4af071c81e..3eff71415c 100644
 +        };
 +        app.primary_thread_id = Some(primary_thread_id);
 +        if error_from_subagent {
++            app.active_thread_id = Some(subagent_thread_id);
 +            app.thread_event_channels.insert(
 +                subagent_thread_id,
 +                ThreadEventChannel::new(THREAD_EVENT_CHANNEL_CAPACITY),
@@ -1097,10 +1142,25 @@ index 4af071c81e..3eff71415c 100644
 +            .await;
 +        }
 +
++        if error_from_subagent {
++            assert_eq!(count_shutdown_first_exits(&mut app_event_rx), 0);
++            assert_eq!(app.quota_exceeded_exit_thread_id, None);
++            assert!(app.quota_handoff_path.is_none());
++            assert!(app.quota_handoff_error.is_none());
++            app.handle_app_server_event(
++                &app_server,
++                turn_error_event(primary_thread_id, false, CodexErrorInfo::UsageLimitExceeded),
++            )
++            .await;
++        }
++
 +        assert_eq!(count_shutdown_first_exits(&mut app_event_rx), 1);
 +        assert_eq!(app.quota_exceeded_exit_thread_id, Some(primary_thread_id));
 +        assert_eq!(app.supervised_outcome, SupervisedOutcome::QuotaExhausted);
-+        assert_eq!(app.quota_unavailable_until, Some(1_800_100_000));
++        assert_eq!(
++            app.quota_unavailable_until,
++            (!error_from_subagent).then_some(1_800_100_000),
++        );
 +        assert_eq!(
 +            app.quota_recovery_args(),
 +            vec![
@@ -1125,7 +1185,58 @@ index 4af071c81e..3eff71415c 100644
 +}
 +
 +#[tokio::test]
-+async fn capacity_error_retries_before_exit_for_main_or_subagent() -> Result<()> {
++async fn quota_handoff_preserves_live_fast_selection_before_cached_settings_catch_up() -> Result<()>
++{
++    for initial_tier in [None, Some("priority")] {
++        let (mut app, mut events, _ops) = make_test_app_with_channels().await;
++        let server =
++            crate::start_embedded_app_server_for_picker(app.chat_widget.config_ref()).await?;
++        let thread_id = ThreadId::new();
++        let mut session = test_thread_session(thread_id, app.config.cwd.to_path_buf());
++        session.model = "gpt-5.4".into();
++        session.model_provider_id = app.config.model_provider_id.clone();
++        session.service_tier = initial_tier.map(str::to_string);
++        crate::chatwidget::tests::set_fast_mode_test_catalog(&mut app.chat_widget);
++        app.enqueue_primary_thread_session(session, Vec::new())
++            .await?;
++        app.chat_widget.set_feature_enabled(Feature::FastMode, true);
++        while events.try_recv().is_ok() {}
++        app.chat_widget.toggle_fast_mode_from_ui();
++        let expected = app.chat_widget.current_service_tier().unwrap().to_string();
++        assert_ne!(Some(expected.as_str()), initial_tier);
++        assert_eq!(
++            app.primary_session_configured
++                .as_ref()
++                .unwrap()
++                .service_tier
++                .as_deref(),
++            initial_tier
++        );
++        assert!(!events.is_empty(), "settings events must still be pending");
++        app.exit_on_quota_exceeded = true;
++
++        app.handle_app_server_event(
++            &server,
++            turn_error_event(thread_id, false, CodexErrorInfo::UsageLimitExceeded),
++        )
++        .await;
++
++        let handoff: serde_json::Value = serde_json::from_slice(&std::fs::read(
++            app.quota_handoff_path.as_ref().expect("handoff persisted"),
++        )?)?;
++        assert!(
++            handoff["resume_args"]
++                .as_array()
++                .unwrap()
++                .contains(&serde_json::json!(format!("service_tier=\"{expected}\"")))
++        );
++        server.shutdown().await?;
++    }
++    Ok(())
++}
++
++#[tokio::test]
++async fn capacity_error_retries_before_exit_only_for_main_thread() -> Result<()> {
 +    for error_from_subagent in [false, true] {
 +        let (mut app, mut app_event_rx, _op_rx) = make_test_app_with_channels().await;
 +        let app_server = crate::start_embedded_app_server_for_picker(app.chat_widget.config_ref())
@@ -1137,6 +1248,7 @@ index 4af071c81e..3eff71415c 100644
 +            let id = ThreadId::from_string("123e4567-e89b-12d3-a456-426614174001").unwrap();
 +            app.thread_event_channels
 +                .insert(id, ThreadEventChannel::new(THREAD_EVENT_CHANNEL_CAPACITY));
++            app.active_thread_id = Some(id);
 +            id
 +        } else {
 +            primary_thread_id
@@ -1168,6 +1280,18 @@ index 4af071c81e..3eff71415c 100644
 +            )
 +            .await;
 +        }
++        if error_from_subagent {
++            assert_eq!(count_shutdown_first_exits(&mut app_event_rx), 0);
++            assert_eq!(app.quota_exceeded_exit_thread_id, None);
++            assert!(app.quota_handoff_path.is_none());
++            assert!(app.quota_handoff_error.is_none());
++            app.handle_app_server_event(
++                &app_server,
++                turn_error_event(primary_thread_id, false, CodexErrorInfo::ServerOverloaded),
++            )
++            .await;
++        }
++
 +        assert_eq!(count_shutdown_first_exits(&mut app_event_rx), 1);
 +        assert_eq!(app.quota_exceeded_exit_thread_id, Some(primary_thread_id));
 +        assert_eq!(app.supervised_outcome, SupervisedOutcome::ModelCapacity);
@@ -1178,6 +1302,69 @@ index 4af071c81e..3eff71415c 100644
 +                .is_some_and(|path| path.is_file())
 +        );
 +        app_server.shutdown().await?;
++    }
++    Ok(())
++}
++
++#[tokio::test]
++async fn stream_disconnect_restarts_only_the_main_thread_after_retries() -> Result<()> {
++    for typed in [false, true] {
++        let (mut app, mut events, _ops) = make_test_app_with_channels().await;
++        let server = crate::start_embedded_app_server_for_picker(app.chat_widget.config_ref())
++            .await
++            .expect("embedded app server");
++        let primary = ThreadId::new();
++        let child = ThreadId::new();
++        app.primary_thread_id = Some(primary);
++        app.thread_event_channels.insert(
++            child,
++            ThreadEventChannel::new(THREAD_EVENT_CHANNEL_CAPACITY),
++        );
++        for (enabled, thread_id, will_retry) in [
++            (false, primary, false),
++            (true, child, false),
++            (true, primary, true),
++            (true, primary, false),
++            (true, primary, false),
++        ] {
++            app.exit_on_quota_exceeded = enabled;
++            let info = if typed {
++                CodexErrorInfo::ResponseStreamDisconnected {
++                    http_status_code: None,
++                }
++            } else {
++                CodexErrorInfo::Other
++            };
++            let mut event = turn_error_event(thread_id, will_retry, info);
++            let codex_app_server_client::AppServerEvent::ServerNotification(notification) =
++                &mut event
++            else {
++                unreachable!();
++            };
++            let ServerNotification::Error(error) = notification.as_mut() else {
++                unreachable!();
++            };
++            error.error.message = "stream disconnected before completion: An error occurred while processing your request.".into();
++            app.handle_app_server_event(&server, event).await;
++            if !enabled || thread_id != primary || will_retry {
++                assert_eq!(count_shutdown_first_exits(&mut events), 0);
++                assert_eq!(app.quota_exceeded_exit_thread_id, None);
++                assert!(app.quota_handoff_path.is_none());
++            }
++        }
++        assert_eq!(count_shutdown_first_exits(&mut events), 1);
++        assert_eq!(app.quota_exceeded_exit_thread_id, Some(primary));
++        assert_eq!(
++            serde_json::to_value(app.supervised_outcome)?,
++            "stream-disconnected"
++        );
++        assert!(
++            app.quota_handoff_path
++                .as_ref()
++                .is_some_and(|path| path.is_file())
++        );
++        assert!(app.quota_handoff_error.is_none());
++        server.shutdown().await?;
 +    }
 +    Ok(())
 +}
@@ -1217,18 +1404,18 @@ index 4af071c81e..3eff71415c 100644
  async fn backend_banner_state_survives_widget_replacement() -> Result<()> {
      for dismiss in [false, true] {
 diff --git a/codex-rs/tui/src/app/tests/startup_defaults_tests.rs b/codex-rs/tui/src/app/tests/startup_defaults_tests.rs
-index 86e0da6fd4..006c5e0576 100644
+index 193ac964f5..3e049e37e1 100644
 --- a/codex-rs/tui/src/app/tests/startup_defaults_tests.rs
 +++ b/codex-rs/tui/src/app/tests/startup_defaults_tests.rs
-@@ -22,6 +22,7 @@ async fn run_startup_for_test(
-     bootstrap: AppServerBootstrap,
+@@ -23,6 +23,7 @@ pub(super) async fn run_startup_for_test(
+     bootstrap: Option<AppServerBootstrap>,
      selection: SessionSelection,
      app_server_target: AppServerTarget,
 +    restore_input_handoff: Option<PathBuf>,
  ) -> Result<AppExitInfo> {
      App::run(
          tui,
-@@ -34,11 +35,14 @@ async fn run_startup_for_test(
+@@ -35,11 +36,14 @@ pub(super) async fn run_startup_for_test(
          CloudConfigBundleLoader::default(),
          /*initial_prompt*/ None,
          Vec::new(),
@@ -1243,12 +1430,31 @@ index 86e0da6fd4..006c5e0576 100644
          /*state_db*/ None,
          Arc::new(EnvironmentManager::default_for_tests()),
          Duration::ZERO,
-@@ -53,6 +57,107 @@ async fn run_startup_for_test(
+@@ -54,6 +58,142 @@ pub(super) async fn run_startup_for_test(
      .await
  }
  
 +#[tokio::test]
 +async fn start_immediately_submits_continuation_before_restored_handoff_messages() -> Result<()> {
++    assert_start_immediately_submits_continuation(None).await
++}
++
++#[tokio::test]
++async fn start_immediately_submits_continuation_with_a_resumed_goal() -> Result<()> {
++    for status in [
++        codex_app_server_protocol::ThreadGoalStatus::Paused,
++        codex_app_server_protocol::ThreadGoalStatus::Blocked,
++        codex_app_server_protocol::ThreadGoalStatus::UsageLimited,
++        codex_app_server_protocol::ThreadGoalStatus::Active,
++    ] {
++        assert_start_immediately_submits_continuation(Some(status)).await?;
++    }
++    Ok(())
++}
++
++async fn assert_start_immediately_submits_continuation(
++    goal_status: Option<codex_app_server_protocol::ThreadGoalStatus>,
++) -> Result<()> {
 +    let home = tempdir()?;
 +    let backend = wiremock::MockServer::start().await;
 +    std::fs::write(
@@ -1301,14 +1507,26 @@ index 86e0da6fd4..006c5e0576 100644
 +
 +    let (mut server, requests, proxy) = start_recording_remote_app_server(&config).await?;
 +    let bootstrap = server.bootstrap(&config).await?;
++    if let Some(status) = goal_status {
++        server
++            .thread_goal_set(
++                thread_id,
++                Some("Finish the interrupted work".into()),
++                Some(status),
++                None,
++            )
++            .await?;
++    }
 +    let mut tui = crate::tui::test_support::make_test_tui()?;
 +    tui.pause_events();
++    let backend_id = server.backend_id();
 +    let mut run = Box::pin(run_startup_for_test(
 +        &mut tui,
 +        server,
 +        config,
 +        bootstrap,
 +        SessionSelection::Resume(crate::resume_picker::SessionTarget {
++            backend_id,
 +            path: None,
 +            thread_id,
 +            cwd: None,
@@ -1319,7 +1537,9 @@ index 86e0da6fd4..006c5e0576 100644
 +    ));
 +    tokio::time::timeout(Duration::from_secs(15), async {
 +        loop {
-+            if !recorded_params(&requests, "turn/start").is_empty() {
++            if !recorded_params(&requests, "turn/start").is_empty()
++                || !recorded_params(&requests, "turn/steer").is_empty()
++            {
 +                return Ok::<(), color_eyre::eyre::Report>(());
 +            }
 +            tokio::select! {
@@ -1335,8 +1555,10 @@ index 86e0da6fd4..006c5e0576 100644
 +    drop(run);
 +    proxy.abort();
 +
-+    let turns = recorded_params(&requests, "turn/start");
++    let mut turns = recorded_params(&requests, "turn/start");
++    turns.extend(recorded_params(&requests, "turn/steer"));
 +    assert_eq!(turns.len(), 1);
++    assert!(recorded_params(&requests, "turn/interrupt").is_empty());
 +    assert_eq!(
 +        turns[0]["input"],
 +        serde_json::json!([{
@@ -1351,7 +1573,7 @@ index 86e0da6fd4..006c5e0576 100644
  #[tokio::test]
  async fn agents_overview_startup_restores_saved_grouping() -> Result<()> {
      let home = tempdir()?;
-@@ -80,6 +185,7 @@ async fn agents_overview_startup_restores_saved_grouping() -> Result<()> {
+@@ -81,6 +221,7 @@ async fn agents_overview_startup_restores_saved_grouping() -> Result<()> {
              allow_embedded_fallback: true,
              endpoint,
          },
@@ -1359,7 +1581,7 @@ index 86e0da6fd4..006c5e0576 100644
      ));
      tokio::time::timeout(Duration::from_secs(/*secs*/ 15), async {
          loop {
-@@ -188,6 +294,7 @@ async fn cli_fork_omits_implicit_model_and_effort() -> Result<()> {
+@@ -191,6 +332,7 @@ async fn cli_fork_omits_implicit_model_and_effort() -> Result<()> {
              history_mode: None,
          }),
          AppServerTarget::Embedded,
@@ -1367,16 +1589,16 @@ index 86e0da6fd4..006c5e0576 100644
      ));
      tokio::time::timeout(Duration::from_secs(/*secs*/ 15), async {
          loop {
-@@ -230,6 +337,7 @@ async fn run_until_thread_start(
-         bootstrap,
+@@ -233,6 +375,7 @@ async fn run_until_thread_start(
+         Some(bootstrap),
          SessionSelection::StartFresh,
          AppServerTarget::Embedded,
 +        /*restore_input_handoff*/ None,
      ));
      tokio::time::timeout(Duration::from_secs(/*secs*/ 15), async {
          loop {
-@@ -709,6 +817,7 @@ async fn startup_read_failure_exits_before_thread_creation() -> Result<()> {
-         bootstrap,
+@@ -763,6 +906,7 @@ async fn startup_read_failure_exits_before_thread_creation() -> Result<()> {
+         Some(bootstrap),
          SessionSelection::StartFresh,
          AppServerTarget::Embedded,
 +        /*restore_input_handoff*/ None,
@@ -1472,10 +1694,10 @@ index 166e090109..abf3d2a313 100644
      }
  
 diff --git a/codex-rs/tui/src/bottom_pane/chat_composer.rs b/codex-rs/tui/src/bottom_pane/chat_composer.rs
-index 2ad3f1cd95..1f81147b13 100644
+index 90e854d128..cf8f2eb809 100644
 --- a/codex-rs/tui/src/bottom_pane/chat_composer.rs
 +++ b/codex-rs/tui/src/bottom_pane/chat_composer.rs
-@@ -540,7 +540,8 @@ fn parent_owned_command_is_allowed(command: SlashCommand, args: &str) -> bool {
+@@ -548,7 +548,8 @@ fn parent_owned_command_is_allowed(command: SlashCommand, args: &str) -> bool {
          )
  }
  
@@ -1486,10 +1708,10 @@ index 2ad3f1cd95..1f81147b13 100644
      Plain,
      /// Preserve model-input provenance when paste expansion reveals a leading shell sigil.
 diff --git a/codex-rs/tui/src/bottom_pane/mod.rs b/codex-rs/tui/src/bottom_pane/mod.rs
-index 996ff53548..49d8bcef7f 100644
+index 83341eedb4..7876f1458d 100644
 --- a/codex-rs/tui/src/bottom_pane/mod.rs
 +++ b/codex-rs/tui/src/bottom_pane/mod.rs
-@@ -128,13 +128,13 @@ mod view_stack;
+@@ -129,13 +129,13 @@ mod view_stack;
  pub(crate) use view_stack::CenteredView;
  pub(crate) use view_stack::DialogOverlay;
  
@@ -1506,7 +1728,7 @@ index 996ff53548..49d8bcef7f 100644
      /// Visible mention sigil (`$` or `@`).
      pub(crate) sigil: char,
 diff --git a/codex-rs/tui/src/chatwidget.rs b/codex-rs/tui/src/chatwidget.rs
-index 2f74f843d5..ce7e163b91 100644
+index 4b9d285d29..b891875f16 100644
 --- a/codex-rs/tui/src/chatwidget.rs
 +++ b/codex-rs/tui/src/chatwidget.rs
 @@ -289,6 +289,7 @@ mod input_restore;
@@ -1517,101 +1739,8 @@ index 2f74f843d5..ce7e163b91 100644
  mod startup_submission;
  use self::interrupts::InterruptManager;
  mod keymap_picker;
-diff --git a/codex-rs/tui/src/chatwidget/input_queue.rs b/codex-rs/tui/src/chatwidget/input_queue.rs
-index bdaedab6ca..862659a77c 100644
---- a/codex-rs/tui/src/chatwidget/input_queue.rs
-+++ b/codex-rs/tui/src/chatwidget/input_queue.rs
-@@ -48,6 +48,8 @@ pub(super) struct InputQueueState {
-     /// When set, the next interrupt should resubmit all pending steers as one
-     /// fresh user turn instead of restoring them into the composer.
-     pub(super) submit_pending_steers_after_interrupt: bool,
-+    /// Submit the queued continuation after an interrupt requested by startup recovery.
-+    pub(super) submit_queued_after_interrupt: bool,
-     pub(super) suppress_queue_autosend: bool,
-     pub(super) transcript_copy: std::sync::Weak<crate::copy_input_guard::CopyInputGuard>,
-     /// Hold submissions while a usage failure or backend-directed model fallback is resolved.
-@@ -57,6 +59,16 @@ pub(super) struct InputQueueState {
- }
- 
- impl InputQueueState {
-+    pub(super) fn prepend_queued_user_message(
-+        &mut self,
-+        message: QueuedUserMessage,
-+        history_record: UserMessageHistoryRecord,
-+    ) {
-+        self.queued_user_messages.push_front(message);
-+        self.queued_user_message_history_records
-+            .push_front(history_record);
-+    }
-+
-     pub(super) fn submissions_paused(&self) -> bool {
-         self.suppress_queue_autosend || self.transcript_copy.strong_count() > 0
-     }
-@@ -83,6 +95,7 @@ impl InputQueueState {
-         self.rejected_steer_history_records.clear();
-         self.pending_steers.clear();
-         self.submit_pending_steers_after_interrupt = false;
-+        self.submit_queued_after_interrupt = false;
-         self.rate_limit_recovery_pending = false;
-     }
- 
-@@ -169,6 +182,7 @@ mod tests {
-             .push_back(UserMessage::from("rejected"));
-         state.user_turn_pending_start = true;
-         state.submit_pending_steers_after_interrupt = true;
-+        state.submit_queued_after_interrupt = true;
- 
-         state.clear();
- 
-@@ -179,5 +193,6 @@ mod tests {
-         assert!(state.rejected_steer_history_records.is_empty());
-         assert!(state.pending_steers.is_empty());
-         assert!(!state.submit_pending_steers_after_interrupt);
-+        assert!(!state.submit_queued_after_interrupt);
-     }
- }
-diff --git a/codex-rs/tui/src/chatwidget/input_restore.rs b/codex-rs/tui/src/chatwidget/input_restore.rs
-index e1a798b522..971bef51c5 100644
---- a/codex-rs/tui/src/chatwidget/input_restore.rs
-+++ b/codex-rs/tui/src/chatwidget/input_restore.rs
-@@ -311,13 +311,15 @@ impl ChatWidget {
-     /// separated by newlines rather than auto-submitting the next one.
-     pub(super) fn on_interrupted_turn(&mut self, reason: TurnAbortReason) {
-         self.requeue_image_submission();
-+        let submit_queued_immediately = self.input_queue.submit_queued_after_interrupt;
-+        self.input_queue.submit_queued_after_interrupt = false;
-         // Finalize, log a gentle prompt, and clear running state.
-         self.finalize_turn();
-         let send_pending_steers_immediately =
-             self.input_queue.submit_pending_steers_after_interrupt;
-         self.input_queue.submit_pending_steers_after_interrupt = false;
-         if self.interrupted_turn_notice_mode != InterruptedTurnNoticeMode::Suppress {
--            if send_pending_steers_immediately {
-+            if send_pending_steers_immediately || submit_queued_immediately {
-                 self.add_to_history(history_cell::new_info_event(
-                     "Model interrupted to submit steer instructions.".to_owned(),
-                     /*hint*/ None,
-@@ -340,7 +342,9 @@ impl ChatWidget {
-         // The server has already discarded pending input by the time the
-         // interrupted turn reaches the UI, so any unacknowledged steers still
-         // tracked here must be restored locally instead of waiting for a later commit.
--        if send_pending_steers_immediately {
-+        if submit_queued_immediately {
-+            self.maybe_send_next_queued_input();
-+        } else if send_pending_steers_immediately {
-             let pending_steers = self
-                 .input_queue
-                 .pending_steers
-@@ -604,6 +608,7 @@ impl ChatWidget {
-         restore_mode: ThreadInputStateRestoreMode,
-     ) {
-         let preserve_in_flight_turn = restore_mode.preserve_in_flight_turn;
-+        self.input_queue.submit_queued_after_interrupt = false;
-         let restored_task_running =
-             preserve_in_flight_turn && input_state.as_ref().is_some_and(|state| state.task_running);
-         if let Some(input_state) = input_state {
 diff --git a/codex-rs/tui/src/chatwidget/input_submission.rs b/codex-rs/tui/src/chatwidget/input_submission.rs
-index 9998e77583..4017c9d13d 100644
+index 9998e77583..d83be7f189 100644
 --- a/codex-rs/tui/src/chatwidget/input_submission.rs
 +++ b/codex-rs/tui/src/chatwidget/input_submission.rs
 @@ -4,6 +4,8 @@ use super::*;
@@ -1623,7 +1752,7 @@ index 9998e77583..4017c9d13d 100644
  impl ChatWidget {
      pub(crate) fn set_task_mentions_enabled(&mut self, enabled: bool) {
          self.bottom_pane.set_task_mentions_enabled(enabled);
-@@ -83,6 +85,26 @@ impl ChatWidget {
+@@ -83,6 +85,16 @@ impl ChatWidget {
          );
      }
  
@@ -1631,20 +1760,10 @@ index 9998e77583..4017c9d13d 100644
 +        if self.blocks_direct_input {
 +            return;
 +        }
-+        self.input_queue.prepend_queued_user_message(
-+            UserMessage::from(START_IMMEDIATELY_PROMPT).into(),
-+            UserMessageHistoryRecord::UserMessageText,
-+        );
-+        self.refresh_pending_input_preview();
-+        if !self.turn_lifecycle.agent_turn_running {
-+            self.maybe_send_next_queued_input();
-+            return;
-+        }
-+
-+        self.input_queue.submit_queued_after_interrupt = true;
-+        if !self.submit_op(AppCommand::interrupt()) {
-+            self.input_queue.submit_queued_after_interrupt = false;
-+        }
++        // Goal activation can start a turn while startup quota recovery still holds input.
++        // The initial-message path submits a steer in that case instead of waiting for idle.
++        self.initial_user_message = Some(UserMessage::from(START_IMMEDIATELY_PROMPT));
++        self.submit_initial_user_message_if_pending();
 +    }
 +
      pub(super) fn submit_user_message_with_history_record(
@@ -1995,22 +2114,22 @@ index 0000000000..8c5555a6a6
 +        .wrap_err_with(|| format!("could not parse input handoff {}", path.display()))
 +}
 diff --git a/codex-rs/tui/src/chatwidget/tests.rs b/codex-rs/tui/src/chatwidget/tests.rs
-index d083177e00..0c6da998c3 100644
+index 1cc51a1646..ab36e848eb 100644
 --- a/codex-rs/tui/src/chatwidget/tests.rs
 +++ b/codex-rs/tui/src/chatwidget/tests.rs
-@@ -275,6 +275,7 @@ mod plan_mode;
- #[path = "tests/plugin_catalog_tests.rs"]
- mod plugin_catalog;
+@@ -277,6 +277,7 @@ mod plugin_catalog;
  mod popups_and_settings;
+ #[path = "tests/program_status.rs"]
+ mod program_status;
 +mod quota_handoff;
  #[path = "tests/rate_limit_recovery_tests.rs"]
  mod rate_limit_recovery_tests;
  #[path = "tests/reasoning_status_tests.rs"]
 diff --git a/codex-rs/tui/src/chatwidget/tests/composer_submission.rs b/codex-rs/tui/src/chatwidget/tests/composer_submission.rs
-index 6ef2db01fb..7131b96a34 100644
+index 0434900691..396936b2c9 100644
 --- a/codex-rs/tui/src/chatwidget/tests/composer_submission.rs
 +++ b/codex-rs/tui/src/chatwidget/tests/composer_submission.rs
-@@ -383,6 +383,159 @@ async fn parent_owned_thread_restores_pending_initial_prompt() {
+@@ -383,6 +383,129 @@ async fn parent_owned_thread_restores_pending_initial_prompt() {
      assert_no_submit_op(&mut op_rx);
  }
  
@@ -2033,7 +2152,6 @@ index 6ef2db01fb..7131b96a34 100644
 +    );
 +    assert!(chat.input_queue.pending_steers.is_empty());
 +    assert!(!chat.input_queue.submit_pending_steers_after_interrupt);
-+    assert!(!chat.input_queue.submit_queued_after_interrupt);
 +    assert!(op_rx.try_recv().is_err());
 +}
 +
@@ -2053,11 +2171,7 @@ index 6ef2db01fb..7131b96a34 100644
 +    assert_no_submit_op(&mut ops);
 +    assert_eq!(
 +        chat.queued_user_message_texts(),
-+        vec![
-+            "You were interrupted, continue work",
-+            "first queued message",
-+            "second queued message",
-+        ]
++        vec!["first queued message", "second queued message"]
 +    );
 +    chat.finish_rate_limit_recovery();
 +    for (turn_id, expected, remaining) in [
@@ -2079,92 +2193,67 @@ index 6ef2db01fb..7131b96a34 100644
 +}
 +
 +#[tokio::test]
-+async fn start_immediately_orders_interrupt_before_its_queued_continuation() {
-+    let (mut chat, mut rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
-+    chat.thread_id = Some(ThreadId::new());
-+    chat.on_task_started();
-+    chat.queue_user_message(UserMessage::from("already queued"));
-+    chat.queue_user_message(UserMessage::from("queued after that"));
++async fn start_immediately_steers_goal_started_during_quota_recovery() {
++    for running_before_submission in [false, true] {
++        let (mut chat, mut events, mut ops) = make_chatwidget_manual(None).await;
++        chat.thread_id = Some(ThreadId::new());
++        chat.hold_rate_limit_recovery();
++        chat.queue_user_message(UserMessage::from("first queued message"));
++        chat.queue_user_message(UserMessage::from("second queued message"));
++        chat.apply_external_edit("unfinished draft".into());
++        if running_before_submission {
++            handle_turn_started(&mut chat, "goal-continuation");
++        }
 +
-+    chat.submit_start_immediately_prompt();
++        chat.submit_start_immediately_prompt();
++        assert!(ops.try_recv().is_err());
++        if !running_before_submission {
++            handle_turn_started(&mut chat, "goal-continuation");
++        }
++        chat.finish_rate_limit_recovery();
 +
-+    next_interrupt_op(&mut op_rx);
-+    assert_eq!(
-+        chat.queued_user_message_texts(),
-+        vec![
-+            "You were interrupted, continue work".to_string(),
-+            "already queued".to_string(),
-+            "queued after that".to_string(),
-+        ]
-+    );
-+    assert!(chat.input_queue.pending_steers.is_empty());
-+    assert!(chat.input_queue.submit_queued_after_interrupt);
-+    handle_turn_interrupted(&mut chat, "turn-1");
-+
-+    let Op::UserTurn { items, .. } = next_submit_op(&mut op_rx) else {
-+        unreachable!();
-+    };
-+    assert_eq!(
-+        items,
-+        vec![UserInput::Text {
-+            text: "You were interrupted, continue work".to_string(),
-+            text_elements: Vec::new(),
-+        }]
-+    );
-+    assert_eq!(
-+        chat.queued_user_message_texts(),
-+        vec![
-+            "already queued".to_string(),
-+            "queued after that".to_string()
-+        ]
-+    );
-+    assert!(!chat.input_queue.submit_queued_after_interrupt);
-+    assert!(
-+        std::iter::from_fn(|| rx.try_recv().ok()).all(|event| !matches!(
-+            event,
-+            AppEvent::SetThreadGoalStatus {
-+                status: AppThreadGoalStatus::Paused,
-+                ..
-+            }
-+        ))
-+    );
-+
-+    handle_turn_completed(&mut chat, "turn-2", /*duration_ms*/ None);
-+    let Op::UserTurn { items, .. } = next_submit_op(&mut op_rx) else {
-+        unreachable!();
-+    };
-+    assert_eq!(
-+        items,
-+        vec![UserInput::Text {
-+            text: "already queued".to_string(),
-+            text_elements: Vec::new(),
-+        }]
-+    );
-+    assert_eq!(chat.queued_user_message_texts(), vec!["queued after that"]);
++        let Ok(Op::UserTurn { items, .. }) = ops.try_recv() else {
++            panic!("expected immediate continuation, not an interrupt");
++        };
++        assert!(matches!(items.as_slice(), [UserInput::Text { text, .. }]
++            if text == "You were interrupted, continue work"));
++        assert_eq!(chat.input_queue.pending_steers.len(), 1);
++        assert_eq!(
++            chat.queued_user_message_texts(),
++            vec!["first queued message", "second queued message"]
++        );
++        assert_eq!(chat.composer_text_with_pending(), "unfinished draft");
++        assert!(chat.initial_user_message.is_none());
++        assert!(ops.try_recv().is_err());
++        assert!(
++            std::iter::from_fn(|| events.try_recv().ok()).all(|event| !matches!(
++                event,
++                AppEvent::SetThreadGoalStatus {
++                    status: AppThreadGoalStatus::Paused,
++                    ..
++                }
++            ))
++        );
++    }
 +}
 +
 +#[tokio::test]
-+async fn start_immediately_completion_race_cannot_interrupt_the_continuation() {
-+    let (mut chat, _rx, mut op_rx) = make_chatwidget_manual(/*model_override*/ None).await;
++async fn start_immediately_steers_a_running_turn_without_interrupting_the_goal() {
++    let (mut chat, _events, mut ops) = make_chatwidget_manual(None).await;
 +    chat.thread_id = Some(ThreadId::new());
-+    chat.on_task_started();
++    handle_turn_started(&mut chat, "goal-continuation");
++    chat.queue_user_message(UserMessage::from("already queued"));
 +
 +    chat.submit_start_immediately_prompt();
 +
-+    next_interrupt_op(&mut op_rx);
-+    handle_turn_completed(&mut chat, "turn-1", /*duration_ms*/ None);
-+    let Op::UserTurn { items, .. } = next_submit_op(&mut op_rx) else {
-+        unreachable!();
++    let Ok(Op::UserTurn { items, .. }) = ops.try_recv() else {
++        panic!("expected immediate continuation, not an interrupt");
 +    };
-+    assert_eq!(
-+        items,
-+        vec![UserInput::Text {
-+            text: "You were interrupted, continue work".to_string(),
-+            text_elements: Vec::new(),
-+        }]
-+    );
-+    assert!(!chat.input_queue.submit_queued_after_interrupt);
-+    assert!(op_rx.try_recv().is_err());
++    assert!(matches!(items.as_slice(), [UserInput::Text { text, .. }]
++        if text == "You were interrupted, continue work"));
++    assert_eq!(chat.input_queue.pending_steers.len(), 1);
++    assert_eq!(chat.queued_user_message_texts(), vec!["already queued"]);
++    assert!(ops.try_recv().is_err());
 +}
 +
  #[tokio::test]
@@ -2383,40 +2472,20 @@ index 0000000000..d7ef3aaef8
 +        fs::canonicalize(persistent_sessions).unwrap()
 +    );
 +}
-diff --git a/codex-rs/tui/src/chatwidget/turn_runtime.rs b/codex-rs/tui/src/chatwidget/turn_runtime.rs
-index 575410965b..24ed354ca6 100644
---- a/codex-rs/tui/src/chatwidget/turn_runtime.rs
-+++ b/codex-rs/tui/src/chatwidget/turn_runtime.rs
-@@ -124,6 +124,7 @@ impl ChatWidget {
-             self.on_agent_reasoning_final();
-         }
-         self.input_queue.submit_pending_steers_after_interrupt = false;
-+        self.input_queue.submit_queued_after_interrupt = false;
-         let sanitized_last_agent_message = last_agent_message.as_deref().map(|message| {
-             parse_assistant_markdown(message, self.config.cwd.as_path()).visible_markdown
-         });
-@@ -323,6 +324,7 @@ impl ChatWidget {
-         self.status_state.reasoning_resume_turn_id = None;
-         self.reasoning_header = None;
-         self.clear_context_compaction();
-+        self.input_queue.submit_queued_after_interrupt = false;
-         self.clear_safety_buffering();
-         // Drop preview-only stream tail content on any termination path before
-         // failed-cell finalization, so transient tail cells are never persisted.
 diff --git a/codex-rs/tui/src/chatwidget/user_messages.rs b/codex-rs/tui/src/chatwidget/user_messages.rs
-index ed997253bc..f63a1f51bd 100644
+index 864760984b..ce5b3c069b 100644
 --- a/codex-rs/tui/src/chatwidget/user_messages.rs
 +++ b/codex-rs/tui/src/chatwidget/user_messages.rs
-@@ -28,7 +28,7 @@ use codex_utils_plugins::mention_syntax::TOOL_MENTION_SIGIL;
- 
+@@ -29,7 +29,7 @@ use codex_utils_plugins::mention_syntax::TOOL_MENTION_SIGIL;
  use super::ChatWidget;
+ use super::StatusSurfaceOverrides;
  
 -#[derive(Debug, Clone, PartialEq)]
 +#[derive(Debug, Clone, PartialEq, serde::Deserialize, serde::Serialize)]
  pub(crate) struct UserMessage {
      pub(crate) text: String,
      pub(crate) local_images: Vec<LocalImageAttachment>,
-@@ -42,13 +42,14 @@ pub(crate) struct UserMessage {
+@@ -43,13 +43,14 @@ pub(crate) struct UserMessage {
      pub(crate) mention_bindings: Vec<MentionBinding>,
  }
  
@@ -2433,7 +2502,7 @@ index ed997253bc..f63a1f51bd 100644
  pub(super) struct UserMessageHistoryOverride {
      pub(super) text: String,
      pub(super) text_elements: Vec<TextElement>,
-@@ -60,20 +61,20 @@ pub(super) enum ShellEscapePolicy {
+@@ -61,20 +62,20 @@ pub(super) enum ShellEscapePolicy {
      Disallow,
  }
  
@@ -2457,7 +2526,7 @@ index ed997253bc..f63a1f51bd 100644
  pub(super) struct QueuedUserMessage {
      pub(super) user_message: UserMessage,
      pub(super) action: QueuedInputAction,
-@@ -118,7 +119,7 @@ pub(super) enum QueueDrain {
+@@ -119,7 +120,7 @@ pub(super) enum QueueDrain {
      Stop,
  }
  
@@ -2505,7 +2574,7 @@ index 29469b295e..9f74b96b36 100644
      ///
      /// Runs the TUI in inline mode, preserving terminal scrollback history.
 diff --git a/codex-rs/tui/src/lib.rs b/codex-rs/tui/src/lib.rs
-index a3fb5447b0..fcf842010a 100644
+index c31c2d4da2..e5b07eccc7 100644
 --- a/codex-rs/tui/src/lib.rs
 +++ b/codex-rs/tui/src/lib.rs
 @@ -29,6 +29,9 @@ pub use app::AppExitInfo;
@@ -2518,7 +2587,7 @@ index a3fb5447b0..fcf842010a 100644
  use app_server_session::AppServerSession;
  use app_server_session::ThreadParamsMode;
  use codex_app_server_client::AppServerClient;
-@@ -1987,9 +1990,12 @@ async fn run_ratatui_app(
+@@ -2064,9 +2067,12 @@ async fn run_ratatui_app(
      let should_prompt_windows_sandbox_nux_at_startup = false;
  
      let Cli {
@@ -2531,7 +2600,7 @@ index a3fb5447b0..fcf842010a 100644
          ..
      } = cli;
      let images = shared.into_inner().images;
-@@ -2100,11 +2106,14 @@ async fn run_ratatui_app(
+@@ -2177,11 +2183,14 @@ async fn run_ratatui_app(
          cloud_config_bundle,
          prompt,
          images,
@@ -2603,3 +2672,53 @@ index 789c7f15f2..a093eaab19 100644
 +        Ok(exit_code)
      })
  }
+diff --git a/codex-rs/tui/src/app/startup.rs b/codex-rs/tui/src/app/startup.rs
+index d7357a4677..bcdccff4f2 100644
+--- a/codex-rs/tui/src/app/startup.rs
++++ b/codex-rs/tui/src/app/startup.rs
+@@ -1147,11 +1147,12 @@ See the Codex keymap documentation for supported actions and examples."
+             if let Some(path) = restore_input_handoff.as_deref()
+                 && let Err(err) = app.chat_widget.restore_quota_handoff_file(path, thread_id)
+             {
+-                return shutdown_on_startup_error(app_server, err).await;
++                return shutdown_on_startup_error(app_server, &mut other_backends, err).await;
+             }
+             if read_only_thread && start_immediately {
+                 return shutdown_on_startup_error(
+                     app_server,
++                    &mut other_backends,
+                     color_eyre::eyre::eyre!(
+                         "cannot use --start-immediately because the session is concurrently open"
+                     ),
+@@ -1189,6 +1190,7 @@ See the Codex keymap documentation for supported actions and examples."
+         } else if let Some(path) = restore_input_handoff {
+             return shutdown_on_startup_error(
+                 app_server,
++                &mut other_backends,
+                 color_eyre::eyre::eyre!(
+                     "cannot restore input handoff {} because no session was resumed",
+                     path.display()
+diff --git a/codex-rs/tui/src/app/tests/startup_defaults_tests.rs b/codex-rs/tui/src/app/tests/startup_defaults_tests.rs
+index 3e049e37e1..6dbe46d717 100644
+--- a/codex-rs/tui/src/app/tests/startup_defaults_tests.rs
++++ b/codex-rs/tui/src/app/tests/startup_defaults_tests.rs
+@@ -146,9 +146,9 @@ wire_api = "responses"
+     let backend_id = server.backend_id();
+     let mut run = Box::pin(run_startup_for_test(
+         &mut tui,
+-        server,
++        InitialBackendSessions::singleton(server),
+         config,
+-        bootstrap,
++        Some(bootstrap),
+         SessionSelection::Resume(crate::resume_picker::SessionTarget {
+             backend_id,
+             path: None,
+@@ -941,6 +941,7 @@ async fn bootstrap_failure_shuts_down_every_initial_backend() -> Result<()> {
+             /*bootstrap*/ None,
+             SessionSelection::StartFresh,
+             AppServerTarget::Embedded,
++            /*restore_input_handoff*/ None,
+         ),
+         async {
+             let request = first_commands.recv().await.expect("initial account read");
