@@ -239,7 +239,7 @@ diff --git a/codex-rs/tui/tests/suite/focus_palette.rs b/codex-rs/tui/tests/suit
 index 645f115c35..f483684091 100644
 --- a/codex-rs/tui/tests/suite/focus_palette.rs
 +++ b/codex-rs/tui/tests/suite/focus_palette.rs
-@@ -53,6 +53,48 @@ fn focus_gained_with_unanswered_palette_queries_preserves_immediate_input() -> R
+@@ -53,6 +53,50 @@ fn focus_gained_with_unanswered_palette_queries_preserves_immediate_input() -> R
      Ok(())
  }
 
@@ -256,6 +256,8 @@ index 645f115c35..f483684091 100644
 +        &repo_root,
 +        codex_home,
 +        &[
++            "-u",
++            "NO_COLOR",
 +            "COLORTERM=truecolor",
 +            codex
 +                .to_str()
@@ -288,7 +290,7 @@ index 645f115c35..f483684091 100644
  #[cfg(target_os = "macos")]
  #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
  async fn interactive_startup_honors_codex_home_symlink_opt_out() -> Result<()> {
-@@ -422,12 +464,12 @@ impl PtyCodex {
+@@ -422,12 +466,12 @@ impl PtyCodex {
          while focus_started.elapsed() < FOCUS_INPUT_TIMEOUT {
              self.read_output(Duration::from_millis(/*millis*/ 20))?;
              let focus_output = &self.output[startup_output_len..];
