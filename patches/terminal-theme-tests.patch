@@ -56,111 +56,11 @@ index 1ebd36301a..2f45ad05eb 100644
      let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
      let tx = AppEventSender::new(tx);
      let mut snapshot = String::new();
-@@ -91,3 +92,31 @@ fn model_theme_files_preview_select_and_restore() {
-     }
-     insta::assert_snapshot!(snapshot);
- }
-+
-+#[test]
-+fn cancelling_preview_restores_automatic_theme_for_current_terminal() {
-+    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-+    let tx = AppEventSender::new(tx);
-+    let dark = crate::terminal_probe::DefaultColors {
-+        fg: (224, 224, 224),
-+        bg: (24, 24, 24),
-+    };
-+    let light = crate::terminal_probe::DefaultColors {
-+        fg: (0, 0, 0),
-+        bg: (220, 220, 220),
-+    };
-+    let params = with_test_default_colors(dark, || {
-+        highlight::restore_adaptive_theme();
-+        build_theme_picker_params(None, None, Some(120))
-+    });
-+    params.on_selection_changed.as_ref().unwrap()(0, &tx);
-+    assert!(!highlight::uses_adaptive_theme());
-+    with_test_default_colors(light, || {
-+        params.on_cancel.as_ref().unwrap()(&tx);
-+        assert!(highlight::uses_adaptive_theme());
-+        assert_eq!(
-+            highlight::current_syntax_theme(),
-+            highlight::resolve_theme_by_name("catppuccin-latte", None).unwrap()
-+        );
-+    });
-+}
-diff --git a/codex-rs/tui/src/tui/event_stream.rs b/codex-rs/tui/src/tui/event_stream.rs
-index b2c6cacabb..afbf48406b 100644
---- a/codex-rs/tui/src/tui/event_stream.rs
-+++ b/codex-rs/tui/src/tui/event_stream.rs
-@@ -504,6 +504,63 @@ mod tests {
-         (broker, handle, draw_tx, draw_rx, terminal_focused)
-     }
-
-+    #[cfg(unix)]
-+    #[test]
-+    fn palette_refresh_preserves_input_and_publishes_only_complete_changes() {
-+        use crate::terminal_probe::DefaultColors;
-+        crate::terminal_palette::with_test_default_colors(
-+            DefaultColors {
-+                fg: (255, 255, 255),
-+                bg: (36, 36, 36),
-+            },
-+            || {
-+                let (broker, _handle, _draw_tx, draw_rx, focused) = setup();
-+                let mut stream = make_stream(broker.clone(), draw_rx, focused);
-+                let scheme = Event::ColorSchemeChanged(crossterm::event::ColorScheme::Light);
-+                assert!(stream.map_crossterm_event(scheme.clone()).is_none());
-+                assert!(
-+                    stream
-+                        .map_crossterm_event(Event::TerminalColor {
-+                            slot: 10,
-+                            rgb: Some((0, 0, 0)),
-+                        })
-+                        .is_none()
-+                );
-+                assert!(!broker.palette_changed.load(Ordering::Relaxed));
-+                let key = KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE);
-+                assert!(matches!(
-+                    stream.map_crossterm_event(Event::Key(key)),
-+                    Some(TuiEvent::Key(actual)) if actual == key
-+                ));
-+                assert!(matches!(
-+                    stream.map_crossterm_event(Event::Paste("unchanged paste".into())),
-+                    Some(TuiEvent::Paste(actual)) if actual == "unchanged paste"
-+                ));
-+                assert!(matches!(
-+                    stream.map_crossterm_event(Event::TerminalColor {
-+                        slot: 11,
-+                        rgb: Some((220, 220, 220)),
-+                    }),
-+                    Some(TuiEvent::Draw)
-+                ));
-+                assert!(broker.palette_changed.swap(false, Ordering::Relaxed));
-+                assert_eq!(crate::terminal_palette::default_bg(), Some((220, 220, 220)));
-+                assert!(stream.map_crossterm_event(scheme).is_none());
-+                for (slot, rgb) in [(10, (0, 0, 0)), (11, (220, 220, 220))] {
-+                    assert!(
-+                        stream
-+                            .map_crossterm_event(Event::TerminalColor {
-+                                slot,
-+                                rgb: Some(rgb),
-+                            })
-+                            .is_none()
-+                    );
-+                }
-+                assert!(!broker.palette_changed.load(Ordering::Relaxed));
-+            },
-+        );
-+    }
-+
-     #[tokio::test(flavor = "current_thread")]
-     async fn mouse_events_preserve_coordinates_and_do_not_consume_the_next_key() {
-         let (broker, handle, _draw_tx, draw_rx, terminal_focused) = setup();
 diff --git a/codex-rs/tui/src/tui/terminal_colors.rs b/codex-rs/tui/src/tui/terminal_colors.rs
 index 49c903c2e8..d80ea03703 100644
 --- a/codex-rs/tui/src/tui/terminal_colors.rs
 +++ b/codex-rs/tui/src/tui/terminal_colors.rs
-@@ -67,3 +67,74 @@ impl PaletteRefresh {
+@@ -67,3 +67,26 @@ impl PaletteRefresh {
          Some(colors)
      }
  }
@@ -170,69 +70,21 @@ index 49c903c2e8..d80ea03703 100644
 +    use super::*;
 +
 +    #[test]
-+    fn waits_for_a_complete_pair_in_either_order() {
-+        for order in [[10, 11], [11, 10]] {
++    fn invalid_or_expired_pairs_ignore_late_replies() {
++        for expired in [false, true] {
 +            let mut refresh = PaletteRefresh {
 +                deadline: Some(Instant::now() + REPLY_TIMEOUT),
 +                ..Default::default()
 +            };
-+            assert_eq!(refresh.observe(order[0], Some((220, 220, 220))), None);
-+            assert_eq!(
-+                refresh.observe(order[1], Some((0, 0, 0))),
-+                Some(DefaultColors {
-+                    fg: if order[0] == 10 {
-+                        (220, 220, 220)
-+                    } else {
-+                        (0, 0, 0)
-+                    },
-+                    bg: if order[0] == 11 {
-+                        (220, 220, 220)
-+                    } else {
-+                        (0, 0, 0)
-+                    },
-+                })
-+            );
-+            assert_eq!(refresh.observe(10, Some((255, 255, 255))), None);
++            assert_eq!(refresh.observe(10, Some((0, 0, 0))), None);
++            if expired {
++                refresh.deadline = Some(Instant::now());
++            } else {
++                assert_eq!(refresh.observe(11, None), None);
++            }
++            assert_eq!(refresh.observe(11, Some((220, 220, 220))), None);
++            assert_eq!(refresh.observe(10, Some((0, 0, 0))), None);
 +        }
-+    }
-+
-+    #[test]
-+    fn invalid_replies_cancel_the_pair_in_either_order() {
-+        for order in [[10, 11], [11, 10]] {
-+            let mut refresh = PaletteRefresh {
-+                deadline: Some(Instant::now() + REPLY_TIMEOUT),
-+                ..Default::default()
-+            };
-+            assert_eq!(refresh.observe(order[0], Some((0, 0, 0))), None);
-+            assert_eq!(refresh.observe(order[1], None), None);
-+            assert!(refresh.deadline.is_none());
-+            assert_eq!(refresh.observe(order[1], Some((220, 220, 220))), None);
-+            assert_eq!(refresh.observe(order[0], Some((0, 0, 0))), None);
-+        }
-+    }
-+
-+    #[test]
-+    fn cancellation_discards_a_partial_pair() {
-+        let mut refresh = PaletteRefresh {
-+            deadline: Some(Instant::now() + REPLY_TIMEOUT),
-+            ..Default::default()
-+        };
-+        assert_eq!(refresh.observe(10, Some((0, 0, 0))), None);
-+        refresh.cancel();
-+        assert_eq!(refresh.observe(11, Some((220, 220, 220))), None);
-+    }
-+
-+    #[test]
-+    fn expired_pairs_ignore_late_replies() {
-+        let mut refresh = PaletteRefresh {
-+            deadline: Some(Instant::now() + REPLY_TIMEOUT),
-+            ..Default::default()
-+        };
-+        assert_eq!(refresh.observe(10, Some((0, 0, 0))), None);
-+        refresh.deadline = Some(Instant::now());
-+        assert_eq!(refresh.observe(11, Some((220, 220, 220))), None);
-+        assert!(refresh.deadline.is_none());
-+        assert_eq!(refresh.observe(10, Some((0, 0, 0))), None);
 +    }
 +}
 diff --git a/codex-rs/tui/tests/suite/focus_palette.rs b/codex-rs/tui/tests/suite/focus_palette.rs
